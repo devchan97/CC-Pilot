@@ -11,7 +11,7 @@ A kanban-based agent team management WebUI for controlling multiple Claude Code 
 
 > Design your agent team from a PRD or description — CCPilot spawns Claude Code instances and tracks them on a kanban board in real time.
 
-![CCPilot Screenshot](public/logo.png)
+![CCPilot Screenshot](public/main.png)
 
 ---
 

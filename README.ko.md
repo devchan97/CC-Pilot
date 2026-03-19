@@ -11,7 +11,7 @@
 
 > PRD나 설명을 입력하면 Claude가 에이전트 팀 구성을 설계하고, CCPilot이 Claude Code 인스턴스를 스폰해 칸반보드에서 실시간으로 추적합니다.
 
-![CCPilot 스크린샷](public/logo.png)
+![CCPilot 스크린샷](public/main.png)
 
 ---
 
