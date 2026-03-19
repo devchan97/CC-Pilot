@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCPilot</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/home.css">
+  <link rel="stylesheet" href="/static/css/lifecycle.css">
+</head>
+
+<body>
+
+  <!-- ── 사이드바 ── -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand" onclick="showView('home');clearProjectSelection()" title="홈으로" style="cursor:pointer">
+        <img class="brand-icon-sm" src="/static/logo.png" alt="CCPilot"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="brand-icon-sm brand-icon-fallback" style="display:none">C</div>
+        <span class="sidebar-brand-name">CCPilot</span>
+      </div>
+      <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="테마 전환">🌙</button>
+    </div>
+
+    <button class="sidebar-new-proj-btn" onclick="openProjectModal()">
+      <span class="sidebar-new-icon">+</span> 새 프로젝트
+    </button>
+
+    <div class="sidebar-section-label">Projects</div>
+    <div class="sidebar-list" id="sidebar-list">
+      <!-- JS로 렌더 -->
+    </div>
+
+  </nav>
+
+  <!-- 사이드바 닫혔을 때 탭 -->
+  <button class="sidebar-tab" id="sidebar-tab" onclick="toggleSidebar()" title="사이드바 열기">&#8250;</button>
+
+  <!-- ── 메인 영역 ── -->
+  <div class="main-area" id="main-area">
+
+    <!-- ── 홈 화면 (view=home) ── -->
+    <div class="view" id="view-home">
+      <div class="home-wrap">
+        <div class="home-header">
+          <div class="home-logo">
+            <img class="brand-icon-lg" src="/static/logo.png" alt="CCPilot"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div class="brand-icon-lg brand-icon-fallback" style="display:none">C</div>
+          </div>
+          <h1 class="home-title">CCPilot</h1>
+          <p class="home-sub">프로젝트를 설명하거나 문서를 업로드하면<br>Claude Code를 사용하여 에이전트 팀을 설계합니다</p>
+        </div>
+
+        <div class="home-input-box">
+          <!-- 파일 첨부 미리보기 -->
+          <div class="home-attachments" id="home-attachments"></div>
+
+          <textarea class="home-textarea" id="home-textarea"
+            placeholder="프로젝트 요구사항, PRD, 아이디어를 입력하세요…&#10;&#10;예: Next.js + FastAPI 기반 쇼핑몰. 사용자 인증, 상품 목록, 결제 기능 필요."
+            rows="4"></textarea>
+
+          <div class="home-input-foot">
+            <div class="home-left-actions">
+              <select id="home-model-sel" class="home-model-sel" title="모델 선택">
+                <option value="">Sonnet 4.6</option>
+                <option value="sonnet">Sonnet 4.6</option>
+                <option value="opus">Opus 4.6</option>
+                <option value="haiku">Haiku 4.5</option>
+              </select>
+              <button class="home-attach-btn" onclick="document.getElementById('home-file-input').click()"
+                title="파일 첨부 (.md/.txt)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path
+                    d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              <input type="file" id="home-file-input" accept=".md,.txt" multiple style="display:none"
+                onchange="onHomeFileAttach(this)">
+
+              <button class="home-attach-btn" onclick="openRexPicker(null, function(p){setHomeCwd(p)})"
+                title="작업 폴더 선택 (Explorer)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                </svg>
+              </button>
+
+              <span class="home-cwd-badge" id="home-cwd-badge" style="display:none"
+                onclick="openRexPicker(null, function(p){setHomeCwd(p)})" title="클릭하여 폴더 재선택">
+              </span>
+              <button class="home-cwd-clear" id="home-cwd-clear-btn" style="display:none" onclick="clearHomeCwd()"
+                title="경로 지우기">✕</button>
+            </div>
+
+            <div class="home-right-actions">
+              <button class="home-send-btn" id="home-send-btn" onclick="runHomeAnalysis()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-carousel">
+          <button class="carousel-arrow" id="carousel-prev">&#8249;</button>
+          <div class="carousel-track-wrap" id="carousel-wrap">
+            <div class="carousel-track" id="carousel-track">
+              <!-- JS로 동적 렌더 (셔플) -->
+            </div>
+          </div>
+          <button class="carousel-arrow" id="carousel-next">&#8250;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Lifecycle 화면 (view=lifecycle) ── -->
+    <div class="view hidden" id="view-lifecycle">
+      <!-- Lifecycle 상단 바 -->
+      <div class="lifecycle-topbar">
+        <div class="lifecycle-project-info">
+          <span class="lifecycle-project-name" id="lifecycle-project-name">프로젝트</span>
+          <span class="lifecycle-project-cwd" id="lifecycle-project-cwd"></span>
+        </div>
+        <div class="lifecycle-topbar-actions">
+          <button class="btn-ghost lc-btn" onclick="togglePlanPanel()" id="plan-toggle-btn">⚡ 팀 자동 생성</button>
+          <button class="btn-primary lc-btn" onclick="openNewModal('backlog')">+ 태스크</button>
+        </div>
+      </div>
+
+      <!-- Planning 패널 -->
+      <div id="plan-panel" class="plan-panel collapsed">
+        <div class="plan-panel-inner">
+          <div class="plan-panel-header">
+            <span class="plan-panel-title">Agent Team 자동 생성</span>
+            <span class="plan-panel-sub">프로젝트 문서를 입력하면 Claude가 에이전트 팀을 설계합니다</span>
+          </div>
+          <div class="plan-tabs">
+            <button class="plan-tab active" onclick="switchPlanTab('text')">텍스트 입력</button>
+            <button class="plan-tab" onclick="switchPlanTab('file')">파일 업로드</button>
+          </div>
+          <div id="plan-tab-text" class="plan-tab-content">
+            <textarea id="plan-text" class="plan-textarea" placeholder="프로젝트 설명, 요구사항, PRD 등을 붙여넣으세요…"></textarea>
+          </div>
+          <div id="plan-tab-file" class="plan-tab-content hidden">
+            <label class="file-drop-area" for="plan-file" id="file-drop-label">
+              <span class="file-drop-icon">📄</span>
+              <span class="file-drop-text">클릭하거나 .md / .txt 파일을 드래그</span>
+              <span class="file-drop-name" id="plan-file-name">선택된 파일 없음</span>
+            </label>
+            <input type="file" id="plan-file" accept=".md,.txt" style="display:none" onchange="onFileSelect(this)">
+          </div>
+          <div class="plan-foot">
+            <div class="plan-cwd-wrap">
+              <input id="plan-cwd" class="plan-cwd-input" placeholder="프로젝트 루트 경로 (비우면 서버 현재 디렉토리)">
+              <button class="btn-ghost plan-cwd-btn" onclick="openRexPicker('plan-cwd')"
+                title="Explorer로 폴더 선택">📁</button>
+            </div>
+            <button class="btn-primary" id="plan-run-btn" onclick="runPlanning()">분석 시작</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 칸반 보드 -->
+      <div id="board">
+        <div class="col" data-phase="backlog">
+          <div class="col-head">
+            <div class="col-dot"></div>
+            <div class="col-title">Backlog</div>
+            <div class="col-count" id="cnt-backlog">0</div>
+          </div>
+          <div class="col-body" id="col-backlog">
+            <div class="col-empty" id="empty-backlog">태스크 없음</div>
+          </div>
+          <button class="col-add-btn" onclick="openNewModal('backlog')">+ 태스크 추가</button>
+        </div>
+        <div class="col" data-phase="inprogress">
+          <div class="col-head">
+            <div class="col-dot"></div>
+            <div class="col-title">In Progress</div>
+            <div class="col-count" id="cnt-inprogress">0</div>
+          </div>
+          <div class="col-body" id="col-inprogress">
+            <div class="col-empty" id="empty-inprogress">태스크 없음</div>
+          </div>
+          <button class="col-add-btn" onclick="openNewModal('inprogress')">+ 태스크 추가</button>
+        </div>
+        <div class="col" data-phase="done">
+          <div class="col-head">
+            <div class="col-dot"></div>
+            <div class="col-title">Done</div>
+            <div class="col-count" id="cnt-done">0</div>
+          </div>
+          <div class="col-body" id="col-done">
+            <div class="col-empty" id="empty-done">태스크 없음</div>
+          </div>
+          <button class="col-add-btn" onclick="openNewModal('done')">+ 태스크 추가</button>
+        </div>
+      </div>
+    </div><!-- /view-lifecycle -->
+
+  </div><!-- /main-area -->
+
+  <!-- ── 오른쪽 Explorer 사이드바 ── -->
+  <nav class="rsidebar collapsed" id="rsidebar">
+    <div class="rsidebar-header">
+      <span class="rsidebar-title">Explorer</span>
+      <button class="rsidebar-close-btn" onclick="toggleRsidebar()" title="닫기">✕</button>
+    </div>
+    <div class="rsidebar-path-wrap" id="rex-path-wrap">
+      <span class="rsidebar-path" id="rex-path" title="클릭하여 경로 직접 입력" onclick="rexStartPathEdit()"></span>
+      <input class="rsidebar-path-input" id="rex-path-input" style="display:none" placeholder="경로 직접 입력 후 Enter…"
+        onkeydown="rexPathInputKey(event)" onblur="rexPathInputBlur()">
+    </div>
+    <div class="rsidebar-toolbar">
+      <button class="rsidebar-tool-btn" id="rex-up-btn" onclick="rexGoUp()" title="상위 폴더">↑ 상위</button>
+      <button class="rsidebar-tool-btn" onclick="rexRefresh()" title="새로고침">↺</button>
+    </div>
+    <div class="rsidebar-list" id="rex-list">
+      <div class="rex-empty">로딩 중…</div>
+    </div>
+  </nav>
+
+  <!-- 오른쪽 사이드바 탭 -->
+  <button class="rsidebar-tab" id="rsidebar-tab" onclick="toggleRsidebar()" title="Explorer 열기">📁</button>
+
+  <!-- ── 모달들 ── -->
+
+  <!-- 새 태스크 -->
+  <div class="overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <h3>새 태스크</h3>
+      <div>
+        <label>태스크 이름</label>
+        <input type="text" id="modal-title" placeholder="예: 로그인 버그 수정" />
+      </div>
+      <div>
+        <label>초기 단계</label>
+        <select id="modal-phase">
+          <option value="backlog">Backlog</option>
+          <option value="inprogress">In Progress</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+      <div>
+        <label>작업 경로 (선택)</label>
+        <div class="modal-cwd-wrap">
+          <input type="text" id="modal-cwd" placeholder="비우면 서버 기본 디렉토리" />
+          <button class="btn-ghost modal-cwd-btn" onclick="openRexPicker('modal-cwd')"
+            title="Explorer로 폴더 선택">📁</button>
+        </div>
+      </div>
+      <div>
+        <label>모델 선택</label>
+        <select id="modal-model">
+          <option value="">기본 (Sonnet 4.6)</option>
+          <option value="sonnet">Sonnet 4.6</option>
+          <option value="opus">Opus 4.6</option>
+          <option value="haiku">Haiku 4.5</option>
+        </select>
+      </div>
+      <div>
+        <label>초기 메시지 (선택)</label>
+        <textarea id="modal-init-prompt" class="modal-init-prompt" placeholder="세션 생성 후 자동 전송할 메시지" rows="3"></textarea>
+      </div>
+      <div class="modal-btns">
+        <button class="btn-ghost" onclick="closeModal()">취소</button>
+        <button class="btn-primary" onclick="confirmNewTask()">만들기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 새 프로젝트 -->
+  <div class="overlay" id="project-modal-overlay" onclick="if(event.target===this)closeProjectModal()">
+    <div class="modal">
+      <h3>새 프로젝트</h3>
+      <div>
+        <label>프로젝트 이름</label>
+        <input type="text" id="proj-modal-name" placeholder="예: 쇼핑몰 v2" />
+      </div>
+      <div>
+        <label>루트 경로 (선택)</label>
+        <div class="modal-cwd-wrap">
+          <input type="text" id="proj-modal-cwd" placeholder="비우면 서버 기본 디렉토리" />
+          <button class="btn-ghost modal-cwd-btn" onclick="openRexPicker('proj-modal-cwd')"
+            title="Explorer로 폴더 선택">📁</button>
+        </div>
+      </div>
+      <div class="modal-btns">
+        <button class="btn-ghost" onclick="closeProjectModal()">취소</button>
+        <button class="btn-primary" onclick="confirmNewProject()">만들기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spawn 제안 -->
+  <div class="overlay" id="spawn-overlay" onclick="if(event.target===this)closeSpawnModal()">
+    <div class="modal spawn-modal">
+      <h3>에이전트 팀 구성 제안</h3>
+      <p class="spawn-summary" id="spawn-summary"></p>
+      <div id="spawn-agent-list"></div>
+      <div class="modal-btns">
+        <button class="btn-ghost" onclick="closeSpawnModal()">취소</button>
+        <button class="btn-primary" onclick="confirmSpawn()">승인 &amp; Spawn</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 태스크 상세 -->
+  <div class="overlay" id="detail-overlay" onclick="if(event.target===this)closeDetailModal()">
+    <div class="modal detail-modal">
+      <div class="detail-modal-head">
+        <div class="detail-dot" id="detail-dot"></div>
+        <div class="detail-title" id="detail-title"></div>
+        <div class="detail-sl" id="detail-sl"></div>
+        <button class="task-btn detail-files-btn" id="detail-files-btn" title="Explorer에서 열기"
+          onclick="rexOpenSessionCwd()" style="display:none">📁</button>
+        <button class="task-btn" onclick="closeDetailModal()">✕</button>
+      </div>
+      <div class="detail-chat" id="detail-chat"></div>
+      <div class="detail-foot">
+        <div class="cmd-dropdown" id="dd-detail"></div>
+        <textarea class="task-ta" id="ta-detail" placeholder="메시지  /clear  /compact  (Enter=전송, Shift+Enter=줄바꿈)"
+          rows="1" disabled></textarea>
+        <button class="btn-send" id="send-detail" disabled>↑</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/constants.js"></script>
+  <script src="/static/js/ws.js"></script>
+  <script src="/static/js/home.js"></script>
+  <script src="/static/js/lifecycle.js"></script>
+  <script src="/static/js/modal.js"></script>
+  <script src="/static/js/explorer.js"></script>
+</body>
+
+</html>

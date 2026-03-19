@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: pip install pyinstaller pywebview
+
+      - name: Build EXE
+        run: pyinstaller CCPilot.spec
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CCPilot-windows
+          path: dist/CCPilot.exe
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CCPilot-windows
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CCPilot.exe
+          generate_release_notes: true
+          body: |
+            ## CCPilot ${{ github.ref_name }}
+
+            [한국어 README](https://github.com/devchan97/CC-Pilot/blob/main/README.ko.md) | [English README](https://github.com/devchan97/CC-Pilot/blob/main/README.md)
+
+            ### 사전 준비 (실행 환경에 필요)
+            1. **Node.js 18+** — [nodejs.org](https://nodejs.org/)
+            2. **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+            3. **Claude Code 로그인** — `claude` 실행 후 로그인
+
+            ### Prerequisites (required on target machine)
+            1. **Node.js 18+** — [nodejs.org](https://nodejs.org/)
+            2. **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+            3. **Claude Code login** — run `claude` once and log in
+
+            ### Installation / 설치
+            Download `CCPilot.exe` below and run it. No Python needed.
+            아래 `CCPilot.exe`를 다운로드 후 실행. Python 불필요.
