@@ -13,10 +13,17 @@ env/
 # Runtime data (auto-generated)
 sessions.json
 projects.json
+*.json.bak
+ccpilot.db
 AGENTS.md
+REFACTORING.md
+tmp_refactor_globals.py
 
 # Projects working directory
 projects/
+
+# Projects Test directory
+test/
 
 # PyInstaller build artifacts
 build/

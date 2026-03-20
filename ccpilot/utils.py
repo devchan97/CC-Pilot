@@ -3,6 +3,8 @@
 import os
 import shutil
 import sys
+import logging
+import json
 from pathlib import Path
 
 # ── MIME / static dir ──────────────────────────────────────────────────────────
@@ -15,11 +17,21 @@ MIME = {
     ".html": "text/html; charset=utf-8",
     ".css":  "text/css; charset=utf-8",
     ".js":   "application/javascript; charset=utf-8",
+    ".ico":  "image/x-icon",
+    ".png":  "image/png",
+    ".jpg":  "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg":  "image/svg+xml",
+    ".webp": "image/webp",
 }
 
 # ── 기본 프로젝트 디렉토리 ────────────────────────────────────────────────────
 
-_BASE_PROJECTS_DIR = Path(__file__).parent.parent / "projects"
+# frozen(exe) 환경에서는 exe 파일 옆 projects/, 일반 실행 시는 프로젝트 루트 옆 projects/
+if getattr(sys, "frozen", False):
+    _BASE_PROJECTS_DIR = Path(sys.executable).parent / "projects"
+else:
+    _BASE_PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 
 
 def default_projects_dir() -> Path:
@@ -60,6 +72,14 @@ def find_claude() -> list[str] | None:
     return None
 
 
+def no_window_kwargs() -> dict:
+    """Windows에서 subprocess 콘솔 창 숨김 플래그."""
+    if sys.platform == "win32":
+        import subprocess
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def clean_env() -> dict:
     return {k: v for k, v in os.environ.items()
             if not k.startswith("CLAUDECODE") and not k.startswith("CLAUDE_CODE")}
@@ -81,8 +101,8 @@ def _read_skill_desc(skill_path: Path) -> str:
                     if line.lower().startswith("description:"):
                         desc = line.split(":", 1)[1].strip()
                         return desc[:60] + ("..." if len(desc) > 60 else "")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("SKILL.md 읽기 실패: %s", e)
     return ""
 
 
@@ -147,8 +167,8 @@ def collect_slash_commands(cwd: str) -> list[dict]:
             _npm_bin = shutil.which("claude")
             if _npm_bin:
                 _npm_prefix = Path(_npm_bin).resolve().parents[2] / "@anthropic-ai" / "claude-code"
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Claude 패키지 경로 탐색 실패: %s", e)
     if _npm_prefix:
         for skills_subdir in (_npm_prefix / "skills", _npm_prefix / "dist" / "skills"):
             if skills_subdir.is_dir():
@@ -173,8 +193,8 @@ def collect_slash_commands(cwd: str) -> list[dict]:
                         if line:
                             desc = line[:60]
                             break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning("명령어 md 파싱 실패 %s: %s", md, e)
                 if not desc:
                     desc = f"custom command: {name}"
                 add(name, desc, src)
@@ -238,3 +258,50 @@ def serve_static(path_str: str) -> tuple[bytes, str] | None:
         return data, ct
     except Exception:
         return None
+
+def build_claude_cmd(model: str = "", has_images: bool = False) -> list[str]:
+    """
+    공통 claude CLI 커맨드 인수를 반환.
+    find_claude()가 None이면 빈 리스트 반환 (호출부에서 None 체크 필요).
+    """
+    base = find_claude()
+    if base is None:
+        return []
+    cmd = base + [
+        "--dangerously-skip-permissions",
+        "--print",
+        "--output-format", "stream-json",
+        "--verbose",
+    ]
+    if has_images:
+        cmd += ["--input-format", "stream-json"]
+    if model:
+        cmd += ["--model", model]
+    return cmd
+
+
+def parse_claude_json(text: str) -> dict:
+    """Claude의 출력에서 JSON을 추출하여 파싱 (다중 블록 고려 및 중첩 중괄호 지원)."""
+    text_clean = text.strip()
+    if text_clean.startswith("```"):
+        lines = text_clean.splitlines()
+        text_clean = "\n".join(l for l in lines if not l.startswith("```")).strip()
+    try:
+        return json.loads(text_clean)
+    except Exception:
+        # 처음 등장하는 올바른 JSON 객체를 찾기 위해 중괄호 매칭
+        start = text_clean.find('{')
+        if start != -1:
+            braces = 0
+            for i in range(start, len(text_clean)):
+                if text_clean[i] == '{':
+                    braces += 1
+                elif text_clean[i] == '}':
+                    braces -= 1
+                    if braces == 0:
+                        try:
+                            return json.loads(text_clean[start:i+1])
+                        except Exception:
+                            pass
+        return {"error": f"JSON 파싱 실패: {text_clean[:200]}"}
+

@@ -1,20 +1,20 @@
-/* ── Lifecycle 화면 ── */
-.view#view-lifecycle{background:var(--bg)}
-.lifecycle-topbar{
+/* ── Kanban 보드 ── */
+.view#view-kanban{background:var(--bg)}
+.kanban-topbar{
   display:flex;align-items:center;gap:10px;padding:10px 16px;
   background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
 }
-.lifecycle-project-info{display:flex;align-items:baseline;gap:8px;flex:1;min-width:0}
-.lifecycle-project-name{
+.kanban-project-info{display:flex;align-items:baseline;gap:8px;flex:1;min-width:0}
+.kanban-project-name{
   font-size:14px;font-weight:600;color:var(--text);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.lifecycle-project-cwd{
+.kanban-project-cwd{
   font-size:10px;color:var(--text-dim);font-family:var(--font-mono);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.lifecycle-topbar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.lc-btn{padding:5px 12px;font-size:11px}
+.kanban-topbar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.kb-btn{padding:5px 12px;font-size:11px}
 
 /* ── Board ── */
 #board{flex:1;display:flex;gap:0;overflow:hidden}
@@ -62,6 +62,7 @@
 .task-preview:hover{color:var(--text);background:var(--surface3)}
 .done-preview{color:var(--col-head-done);font-style:italic}
 .done-preview:hover{color:var(--green)}
+.preview-pending{color:var(--text-dim)!important;font-style:italic;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 
 .task-head{display:flex;align-items:center;gap:7px;padding:10px 12px 7px}
 .task-dot{width:7px;height:7px;border-radius:50%;background:var(--text-dim);flex-shrink:0}
@@ -208,32 +209,136 @@
 
 /* ── Spawn 모달 ── */
 .spawn-modal{width:520px;max-width:95vw;max-height:80vh;overflow-y:auto}
+.spawn-modal::-webkit-scrollbar{width:4px}
+.spawn-modal::-webkit-scrollbar-track{background:transparent}
+.spawn-modal::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.spawn-modal::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
 .spawn-summary{font-size:12px;color:var(--text-mid);margin-bottom:12px;padding:8px 12px;background:var(--surface3);border-radius:8px;border:1px solid var(--border2);line-height:1.5}
-.spawn-proj-field{padding:0 0 12px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.spawn-proj-field{padding:0 0 12px;border-bottom:1px solid var(--border);margin-bottom:12px;display:grid;gap:6px}
+.spawn-cwd-row{display:flex;align-items:center;gap:6px;margin-top:2px}
+.spawn-cwd-label{font-size:10px;color:var(--text-dim);font-weight:500;flex-shrink:0;width:56px}
+.spawn-cwd-val{flex:1;font-size:11px;color:var(--text-mid);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spawn-cwd-val.spawn-cwd-warn{color:#e07040}
+.spawn-cwd-btn{background:transparent;border:1px solid var(--border2);border-radius:5px;padding:2px 6px;cursor:pointer;font-size:12px;color:var(--text-mid);transition:background .12s}
+.spawn-cwd-btn:hover{background:var(--surface2);color:var(--text)}
 .agent-proposal-item{background:var(--surface3);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;margin-bottom:9px;display:grid;gap:7px}
 .agent-proposal-row{display:flex;align-items:center;gap:8px}
 .agent-proposal-label{font-size:10px;color:var(--text-dim);width:56px;flex-shrink:0;font-weight:500}
 .agent-proposal-input{flex:1;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:6px;padding:4px 9px;font-size:11px;outline:none;font-family:var(--font-sans);transition:border-color .15s}
 .agent-proposal-input:focus{border-color:var(--accent)}
+.agent-proposal-select{
+  flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border2);
+  border-radius:6px;padding:4px 28px 4px 9px;font-size:11px;
+  outline:none;cursor:pointer;font-family:var(--font-sans);
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239a9589'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 9px center;
+  transition:border-color .15s;
+}
+.agent-proposal-select:focus{border-color:var(--accent)}
 .agent-proposal-prompt{width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:6px;padding:5px 9px;font-size:11px;outline:none;font-family:var(--font-sans);resize:vertical;min-height:50px;line-height:1.5;transition:border-color .15s}
 .agent-proposal-prompt:focus{border-color:var(--accent)}
+.agent-proposal-prompt::-webkit-scrollbar{width:4px}
+.agent-proposal-prompt::-webkit-scrollbar-track{background:transparent}
+.agent-proposal-prompt::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.agent-proposal-prompt::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
 .agent-role-badge{font-size:9px;padding:2px 8px;border-radius:4px;background:var(--accent);color:#fff;font-weight:600;flex-shrink:0;letter-spacing:.3px}
 
-/* ── Explorer 파일 목록 ── */
+/* ── Spawn 사전 준비 체크리스트 ── */
+.spawn-prereq-section{margin-bottom:14px;border:1px solid #a0622044;border-radius:9px;overflow:hidden}
+.spawn-prereq-title{font-size:11px;font-weight:600;color:#e07040;padding:7px 12px;background:#a0622018}
+.spawn-prereq-list{padding:6px 10px 8px;display:flex;flex-direction:column;gap:5px}
+.spawn-prereq-item{display:flex;align-items:flex-start;gap:8px;cursor:pointer;padding:2px 2px}
+.spawn-prereq-check{margin-top:2px;accent-color:var(--accent);flex-shrink:0;cursor:pointer}
+.spawn-prereq-label{font-size:12px;color:var(--text);line-height:1.5}
+.spawn-prereq-detail{color:var(--text-dim);font-size:11px}
+.spawn-prereq-item:has(.spawn-prereq-check:checked) .spawn-prereq-label{color:var(--text-dim);text-decoration:line-through}
+
+/* ── Spawn 디자인 참조 섹션 ── */
+.spawn-design-section{padding:10px 0 12px;border-bottom:1px solid var(--border);margin-bottom:12px;display:grid;gap:6px}
+.spawn-design-header{display:flex;align-items:center;gap:8px}
+.spawn-design-title{font-size:11px;color:var(--text-mid);font-weight:500;flex:1}
+.spawn-design-optional{font-weight:400;color:var(--text-dim)}
+.spawn-design-hint{font-size:10px;color:var(--text-dim);margin-top:-2px}
+.spawn-design-add-btn{
+  background:transparent;border:1px solid var(--border2);border-radius:5px;
+  padding:1px 8px;cursor:pointer;font-size:15px;color:var(--text-mid);
+  transition:background .12s,color .12s;line-height:1.6;user-select:none;
+}
+.spawn-design-add-btn:hover{background:var(--surface2);color:var(--text)}
+.spawn-design-files{display:flex;flex-direction:column;gap:4px}
+.spawn-design-file-item{
+  display:flex;align-items:center;gap:7px;padding:4px 9px;
+  background:var(--surface3);border:1px solid var(--border2);border-radius:7px;
+}
+.spawn-design-file-icon{font-size:13px;flex-shrink:0}
+.spawn-design-file-name{
+  flex:1;font-size:11px;color:var(--text);font-family:var(--font-mono);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.spawn-design-file-remove{
+  background:transparent;border:none;color:var(--text-dim);
+  cursor:pointer;font-size:11px;padding:0 2px;border-radius:3px;
+}
+.spawn-design-file-remove:hover{color:var(--red);background:var(--surface2)}
+
+/* ── Explorer 파일 트리 (VSCode 스타일) ── */
 .rex-empty{padding:12px 14px;font-size:11px;color:var(--text-dim)}
 .rex-empty.rex-error{color:var(--red);line-height:1.6}
 .rex-empty small{font-size:9px;color:var(--text-dim);font-family:var(--font-mono);word-break:break-all}
-.rex-item{
-  display:flex;align-items:center;gap:6px;padding:5px 12px;
-  cursor:pointer;font-size:11px;color:var(--text);
-  transition:background .1s;white-space:nowrap;overflow:hidden;
-  user-select:none;
+.rex-row{
+  display:flex;align-items:center;gap:4px;
+  height:22px;padding-right:8px;
+  cursor:pointer;font-size:12px;color:var(--text);
+  white-space:nowrap;overflow:hidden;user-select:none;
+  border-radius:3px;margin:0 4px;
+  transition:background .08s;
 }
-.rex-item:hover{background:var(--surface2)}
-.rex-item.is-dir{color:var(--accent)}
-.rex-icon{flex-shrink:0;font-size:12px;width:14px;text-align:center}
-.rex-name{flex:1;overflow:hidden;text-overflow:ellipsis;}
-.rex-size{font-size:9px;color:var(--text-dim);flex-shrink:0;margin-left:4px}
+.rex-row:hover{background:var(--surface2)}
+.rex-row.rex-selected{background:var(--surface3)}
+.rex-chevron{width:14px;flex-shrink:0;font-size:9px;color:var(--text-dim);text-align:center;line-height:1}
+.rex-icon{flex-shrink:0;font-size:13px;width:16px;text-align:center;line-height:1}
+.rex-name{flex:1;overflow:hidden;text-overflow:ellipsis;line-height:22px}
+.rex-dir > .rex-name{color:var(--text)}
+.rex-file > .rex-name{color:var(--text-mid)}
+.rex-unsupported{opacity:.4;cursor:not-allowed}
+.rex-unsupported > .rex-name{text-decoration:line-through}
+.rex-size{font-size:10px;color:var(--text-dim);flex-shrink:0;margin-left:4px}
+
+/* ── 커스텀 스크롤바 (전역 textarea / 스크롤 영역) ── */
+textarea::-webkit-scrollbar,
+.plan-textarea::-webkit-scrollbar,
+.modal-init-prompt::-webkit-scrollbar,
+.home-textarea::-webkit-scrollbar,
+.detail-chat::-webkit-scrollbar,
+.col-body::-webkit-scrollbar{width:4px}
+textarea::-webkit-scrollbar-track,
+.plan-textarea::-webkit-scrollbar-track,
+.modal-init-prompt::-webkit-scrollbar-track,
+.home-textarea::-webkit-scrollbar-track,
+.detail-chat::-webkit-scrollbar-track,
+.col-body::-webkit-scrollbar-track{background:transparent}
+textarea::-webkit-scrollbar-thumb,
+.plan-textarea::-webkit-scrollbar-thumb,
+.modal-init-prompt::-webkit-scrollbar-thumb,
+.home-textarea::-webkit-scrollbar-thumb,
+.detail-chat::-webkit-scrollbar-thumb,
+.col-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+textarea::-webkit-scrollbar-thumb:hover,
+.plan-textarea::-webkit-scrollbar-thumb:hover,
+.modal-init-prompt::-webkit-scrollbar-thumb:hover,
+.home-textarea::-webkit-scrollbar-thumb:hover,
+.detail-chat::-webkit-scrollbar-thumb:hover,
+.col-body::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
+
+/* ── 커스텀 Confirm 모달 ── */
+.confirm-modal{width:340px;gap:10px;text-align:center;padding:24px 22px}
+.confirm-icon{font-size:28px;line-height:1;margin-bottom:2px}
+.confirm-msg{font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap}
+.confirm-modal .confirm-ok-btn{background:var(--red)}
+.confirm-modal .confirm-ok-btn:hover:not(:disabled){background:#a03028}
+.confirm-modal .confirm-ok-btn.safe{background:var(--accent)}
+.confirm-modal .confirm-ok-btn.safe:hover:not(:disabled){background:var(--accent2)}
 
 /* ── 모바일 ── */
 @media(max-width:640px){

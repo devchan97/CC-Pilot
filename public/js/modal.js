@@ -10,7 +10,7 @@ function closeProjectModal(){
 }
 async function confirmNewProject(){
   const name = document.getElementById('proj-modal-name').value.trim();
-  if(!name){ alert('프로젝트 이름을 입력하세요.'); return; }
+  if(!name){ alert(t('err.project_name')); return; }
   const cwd = document.getElementById('proj-modal-cwd').value.trim();
   closeProjectModal();
   const p = await createProject(name, cwd);
@@ -35,7 +35,7 @@ function openNewModal(phase){
   const modalModelSel = document.getElementById('modal-model');
   if(modalModelSel) modalModelSel.value = curModel;
   // 활성 프로젝트 root_cwd를 기본 경로로 채우기
-  const proj = _activeProjectId ? projects[_activeProjectId] : null;
+  const proj = AppState.activeProjectId ? projects[AppState.activeProjectId] : null;
   document.getElementById('modal-cwd').value = proj?.root_cwd || '';
   document.getElementById('modal-overlay').classList.add('open');
   setTimeout(()=>document.getElementById('modal-title').focus(), 50);
@@ -135,7 +135,7 @@ function renderLogEntry(chat, entry, sid){
     wrap.appendChild(b);chat.appendChild(wrap);
   } else {
     const wrap=document.createElement('div');wrap.className='msg '+(entry.role||'sys');
-    if(entry.role==='user'||entry.role==='cmd'){const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent=entry.role==='cmd'?'/cmd':'나';wrap.appendChild(lbl);}
+    if(entry.role==='user'||entry.role==='cmd'){const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent=entry.role==='cmd'?'/cmd':'Me';wrap.appendChild(lbl);}
     else if(entry.role==='ai'){const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent='Claude';wrap.appendChild(lbl);}
     const b=document.createElement('div');b.className='bubble';b.textContent=entry.text||'';wrap.appendChild(b);chat.appendChild(wrap);return b;
   }
@@ -150,37 +150,52 @@ function openDoneSummaryModal(sid){
   _detailSid=sid;
   document.getElementById('detail-title').textContent=title;
   document.getElementById('detail-dot').className='detail-dot ok';
-  document.getElementById('detail-sl').innerHTML='<span class="c-green">완료된 태스크</span>';
+  document.getElementById('detail-sl').innerHTML='<span class="c-green">'+t('detail.done_tag')+'</span>';
   const chat=document.getElementById('detail-chat');
   chat.innerHTML='';
   const wrap=document.createElement('div');wrap.className='msg sys';
   const b=document.createElement('div');b.className='bubble';
   b.style.cssText='color:var(--green);font-size:11px;text-align:center';
-  b.textContent='✓ 이 태스크는 완료된 상태입니다. 다시 진행하려면 In Progress로 이동하세요.';
+  b.textContent=t('detail.done_notice');
   wrap.appendChild(b);chat.appendChild(wrap);
   const wrap2=document.createElement('div');wrap2.className='msg ai';
-  const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent='마지막 완료 기록';wrap2.appendChild(lbl);
+  const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent=t('detail.done_label');wrap2.appendChild(lbl);
   const b2=document.createElement('div');b2.className='bubble';b2.textContent=text;wrap2.appendChild(b2);chat.appendChild(wrap2);
   chat.scrollTop=chat.scrollHeight;
   // 입력 비활성화
   const ta=document.getElementById('ta-detail');
   const btn=document.getElementById('send-detail');
-  ta.disabled=true;btn.disabled=true;ta.placeholder='완료된 태스크입니다. In Progress로 이동하면 대화가 재개됩니다.';
+  ta.disabled=true;btn.disabled=true;ta.placeholder=t('detail.done_placeholder');
   document.getElementById('detail-overlay').classList.add('open');
 }
 
 // ── Planning 패널 ──────────────────────────────────────────────────────────────
-let _planTab='text',_spawnAgents=[],_spawnSummary='',_spawnRootCwd='',_spawnDefaultName='';
+let _planTab='text',_spawnAgents=[];
+AppState.spawnSummary=''; AppState.spawnRootCwd=''; AppState.spawnDefaultName=''; AppState.spawnPrereqs=[]; AppState.spawnDesignFiles=[];
+// spawnDesignFiles → AppState.spawnDesignFiles (constants.js)
 
 function togglePlanPanel(){document.getElementById('plan-panel').classList.toggle('collapsed');}
 function switchPlanTab(tab){
   _planTab=tab;
-  document.querySelectorAll('.plan-tab').forEach(b=>b.classList.toggle('active',b.textContent.trim().startsWith(tab==='text'?'텍스트':'파일')));
+  document.querySelectorAll('.plan-tab').forEach(b=>b.classList.toggle('active',b.dataset.i18n===(tab==='text'?'plan.tab_text':'plan.tab_file')));
   document.getElementById('plan-tab-text').classList.toggle('hidden',tab!=='text');
   document.getElementById('plan-tab-file').classList.toggle('hidden',tab!=='file');
 }
 function onFileSelect(input){
-  const f=input.files[0];document.getElementById('plan-file-name').textContent=f?f.name:'선택된 파일 없음';
+  const f=input.files[0];
+  if(f){
+    const ext = f.name.split('.').pop().toLowerCase();
+    // CLAUDE_SUPPORTED_EXTS (home.js에 정의) 기준으로 검증
+    if(typeof CLAUDE_SUPPORTED_EXTS !== 'undefined' && !CLAUDE_SUPPORTED_EXTS.has(ext)){
+      alert(t('err.file_type') + '.' + ext + '\n' + t('err.file_type_detail') + 'txt, md, json, yaml, csv…');
+      input.value = '';
+      document.getElementById('plan-file-name').textContent = t('plan.no_file');
+      return;
+    }
+    document.getElementById('plan-file-name').textContent = f.name;
+  } else {
+    document.getElementById('plan-file-name').textContent = t('plan.no_file');
+  }
 }
 
 function showLoading(show, targetId){
@@ -191,7 +206,7 @@ function showLoading(show, targetId){
   if(!el){
     el = document.createElement('div');
     el.className = 'plan-loading';
-    el.innerHTML = '<div class="plan-spinner"></div><div class="plan-loading-text">Claude가 프로젝트를 분석 중...</div>';
+    el.innerHTML = '<div class="plan-spinner"></div><div class="plan-loading-text">'+t('spawn.analyze_loading')+'</div>';
     if(container){
       // 모달 내부에 relative 위치로 삽입
       const modal = container.querySelector('.modal, .spawn-modal') || container;
@@ -208,6 +223,7 @@ function showLoading(show, targetId){
 
 async function runPlanning(){
   const model=getSelectedModel();
+  const lang=typeof getLang==='function'?getLang():'en';
   const cwd=document.getElementById('plan-cwd').value.trim();
   const btn=document.getElementById('plan-run-btn');
   btn.disabled=true;showLoading(true);
@@ -215,18 +231,19 @@ async function runPlanning(){
     let result;
     if(_planTab==='text'){
       const text=document.getElementById('plan-text').value.trim();
-      if(!text){alert('텍스트를 입력하세요.');return;}
-      const r=await fetch('/api/plan/text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,cwd,model})});
+      if(!text){alert(t('err.enter_text'));return;}
+      const r=await fetch('/api/plan/text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,cwd,model,lang})});
       result=await r.json();
     } else {
       const file=document.getElementById('plan-file').files[0];
-      if(!file){alert('파일을 선택하세요.');return;}
-      const fd=new FormData();fd.append('file',file);fd.append('cwd',cwd);fd.append('model',model);
+      if(!file){alert(t('err.select_file'));return;}
+      const fd=new FormData();fd.append('file',file);fd.append('cwd',cwd);fd.append('model',model);fd.append('lang',lang);
       const r=await fetch('/api/plan/file',{method:'POST',body:fd});result=await r.json();
     }
-    if(result.error){alert('분석 오류: '+result.error);return;}
-    if(!result.agents||!result.agents.length){alert('에이전트 제안이 없습니다.');return;}
-    _spawnSummary=result.summary||'';_spawnRootCwd=cwd;_spawnDefaultName='';
+    if(result.error){alert(t('err.analysis')+result.error);return;}
+    if(!result.agents||!result.agents.length){alert(t('err.no_agents'));return;}
+    AppState.spawnSummary=result.summary||'';AppState.spawnRootCwd=cwd;AppState.spawnDefaultName='';
+    AppState.spawnPrereqs=result.prerequisites||[];
     showSpawnModal(result.agents,false);
   }catch(e){alert('요청 실패: '+e);}
   finally{btn.disabled=false;showLoading(false);}
@@ -234,35 +251,61 @@ async function runPlanning(){
 
 function showSpawnModal(agents, fromHome){
   _spawnAgents=agents;
-  document.getElementById('spawn-summary').textContent=_spawnSummary||'프로젝트 분석 완료';
+  AppState.spawnDesignFiles=[];
+  // 디자인 섹션: fromHome일 때만 표시
+  const ds=document.getElementById('spawn-design-section');
+  if(ds) ds.style.display=fromHome?'':'none';
+  const dsf=document.getElementById('spawn-design-files');
+  if(dsf) dsf.innerHTML='';
+  document.getElementById('spawn-summary').textContent=AppState.spawnSummary||'Project analysis complete';
   const list=document.getElementById('spawn-agent-list');
-  // 프로젝트명 입력 필드 (홈에서 왔을 때만)
+  // prerequisites 체크리스트
+  const prereqHtml = (AppState.spawnPrereqs && AppState.spawnPrereqs.length) ? `
+    <div class="spawn-prereq-section">
+      <div class="spawn-prereq-title">${t('spawn.prereq_title')}</div>
+      <div class="spawn-prereq-list">
+        ${AppState.spawnPrereqs.map((p,i)=>`
+          <label class="spawn-prereq-item">
+            <input type="checkbox" id="prereq-${i}" class="spawn-prereq-check">
+            <span class="spawn-prereq-label">${esc(p.label||'')}${p.detail?`<span class="spawn-prereq-detail"> — ${esc(p.detail)}</span>`:''}</span>
+          </label>`).join('')}
+      </div>
+    </div>` : '';
+  document.getElementById('spawn-prereq-wrap').innerHTML = prereqHtml;
+  // 프로젝트명 + 루트 작업폴더 필드 (홈에서 왔을 때만)
+  const cwdLabel = AppState.spawnRootCwd || t('spawn.no_folder');
+  const cwdWarn = !AppState.spawnRootCwd ? ' spawn-cwd-warn' : '';
   const projField = fromHome ? `
     <div class="spawn-proj-field">
-      <label style="font-size:11px;color:var(--text-mid);font-weight:500">프로젝트 이름</label>
+      <label style="font-size:11px;color:var(--text-mid);font-weight:500">${t('spawn.proj_name')}</label>
       <input id="spawn-proj-name" class="agent-proposal-input" style="margin-top:5px;width:100%"
-        value="${esc(_spawnDefaultName)}" placeholder="프로젝트 이름 입력">
+        value="${esc(AppState.spawnDefaultName)}" placeholder="프로젝트 이름 입력">
+      <div class="spawn-cwd-row">
+        <span class="spawn-cwd-label">${t('spawn.work_folder')}</span>
+        <span class="spawn-cwd-val${cwdWarn}" id="spawn-cwd-display" title="${esc(AppState.spawnRootCwd)}">${esc(cwdLabel)}</span>
+        <button class="spawn-cwd-btn" onclick="spawnPickFolder()" title="${t('spawn.select_folder')}">${t('spawn.select_folder')}</button>
+      </div>
     </div>` : '';
   const defaultModel = getSelectedModel() || 'sonnet';
   list.innerHTML = projField + agents.map((ag,i)=>`
     <div class="agent-proposal-item">
       <div class="agent-proposal-row">
         <span class="agent-role-badge">${esc(ag.role||'agent')}</span>
-        <div class="agent-proposal-label">이름</div>
-        <input class="agent-proposal-input" id="ag-title-${i}" value="${esc(ag.title||ag.role||'Agent')}" placeholder="에이전트 이름">
-        <div class="agent-proposal-label">경로</div>
-        <input class="agent-proposal-input" id="ag-cwd-${i}" value="${esc(ag.cwd_suffix||'')}" placeholder="서브 디렉토리">
+        <div class="agent-proposal-label">${t('spawn.agent_name')}</div>
+        <input class="agent-proposal-input" id="ag-title-${i}" value="${esc(ag.title||ag.role||'Agent')}" placeholder="${t('spawn.agent_name')}">
+        <div class="agent-proposal-label">${t('spawn.agent_path')}</div>
+        <input class="agent-proposal-input" id="ag-cwd-${i}" value="${esc(ag.cwd_suffix||'')}" placeholder="${t('spawn.agent_path')}">
       </div>
       <div class="agent-proposal-row">
-        <div class="agent-proposal-label" style="width:60px">모델</div>
-        <select class="agent-proposal-input" id="ag-model-${i}" style="font-size:11px;padding:3px 6px">
+        <div class="agent-proposal-label" style="width:60px">${t('spawn.agent_model')}</div>
+        <select class="agent-proposal-select" id="ag-model-${i}">
           <option value="sonnet"${defaultModel==='sonnet'||!defaultModel?' selected':''}>Sonnet 4.6</option>
           <option value="opus"${defaultModel==='opus'?' selected':''}>Opus 4.6</option>
           <option value="haiku"${defaultModel==='haiku'?' selected':''}>Haiku 4.5</option>
         </select>
       </div>
       <div class="agent-proposal-row">
-        <div class="agent-proposal-label" style="width:60px">태스크</div>
+        <div class="agent-proposal-label" style="width:60px">${t('spawn.agent_task')}</div>
         <textarea class="agent-proposal-prompt" id="ag-prompt-${i}" rows="2">${esc(ag.init_prompt||'')}</textarea>
       </div>
     </div>`).join('');
@@ -270,14 +313,68 @@ function showSpawnModal(agents, fromHome){
 }
 function closeSpawnModal(){document.getElementById('spawn-overlay').classList.remove('open');}
 
+function spawnPickFolder(){
+  openRexPicker(null, (path)=>{
+    if(!path) return;
+    AppState.spawnRootCwd = path;
+    const disp = document.getElementById('spawn-cwd-display');
+    if(disp){
+      disp.textContent = path;
+      disp.title = path;
+      disp.classList.remove('spawn-cwd-warn');
+    }
+  });
+}
+
+// ── 디자인 파일 첨부 ──────────────────────────────────────────────────────────
+const _DESIGN_IMG_EXTS = new Set(['png','jpg','jpeg','webp']);
+const _DESIGN_TEXT_EXTS = new Set(['md','txt','json']);
+
+async function onSpawnDesignAttach(input){
+  const MAX_IMG  = 5*1024*1024;  // 이미지 5MB
+  const MAX_TEXT = 512*1024;     // 텍스트 512KB
+  for(const f of input.files){
+    if(AppState.spawnDesignFiles.length >= 8){ showConfirm('Maximum 8 design files.',{icon:'⚠',okText:'OK',cancelText:'',safe:true}); break; }
+    const ext = f.name.split('.').pop().toLowerCase();
+    const isImage = _DESIGN_IMG_EXTS.has(ext);
+    const isText  = _DESIGN_TEXT_EXTS.has(ext);
+    if(!isImage && !isText){ showConfirm('Unsupported format: .'+ext+'\nAllowed: .md .txt .json .png .jpg .jpeg .webp',{icon:'⚠',okText:'OK',cancelText:'',safe:true}); continue; }
+    const maxSize = isImage ? MAX_IMG : MAX_TEXT;
+    if(f.size > maxSize){ showConfirm(f.name+': File too large.',{icon:'⚠',okText:'OK',cancelText:'',safe:true}); continue; }
+    if(AppState.spawnDesignFiles.find(x=>x.name===f.name)) continue;
+    const buf = await f.arrayBuffer();
+    const mimeType = isImage ? (f.type||'image/'+ext) : 'text/plain';
+    AppState.spawnDesignFiles.push({name:f.name, isImage, bytes:buf, mimeType});
+  }
+  input.value='';
+  renderSpawnDesignFiles();
+}
+
+function renderSpawnDesignFiles(){
+  const el=document.getElementById('spawn-design-files');
+  if(!el) return;
+  if(!AppState.spawnDesignFiles.length){ el.innerHTML=''; return; }
+  el.innerHTML=AppState.spawnDesignFiles.map((f,i)=>`
+    <div class="spawn-design-file-item">
+      <span class="spawn-design-file-icon">${f.isImage?'🖼':'📄'}</span>
+      <span class="spawn-design-file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+      <button class="spawn-design-file-remove" onclick="removeSpawnDesign(${i})">✕</button>
+    </div>`).join('');
+}
+
+function removeSpawnDesign(i){
+  AppState.spawnDesignFiles.splice(i,1);
+  renderSpawnDesignFiles();
+}
+
 async function confirmSpawn(){
   // 프로젝트 처리
-  let projectId=_activeProjectId;
+  let projectId=AppState.activeProjectId;
   const projNameEl=document.getElementById('spawn-proj-name');
   if(projNameEl){
-    const pname=projNameEl.value.trim()||_spawnDefaultName||'새 프로젝트';
-    const p=await createProject(pname, _spawnRootCwd);
-    if(p){projectId=p.id;_activeProjectId=p.id;}
+    const pname=projNameEl.value.trim()||AppState.spawnDefaultName||'새 프로젝트';
+    const p=await createProject(pname, AppState.spawnRootCwd);
+    if(p){projectId=p.id;AppState.activeProjectId=p.id;}
   }
 
   const agents=_spawnAgents.map((ag,i)=>({
@@ -289,16 +386,25 @@ async function confirmSpawn(){
     model:document.getElementById('ag-model-'+i)?.value||getSelectedModel()||'sonnet',
   }));
 
+  // 디자인 파일 base64 직렬화
+  const _designFilesPayload = await Promise.all(AppState.spawnDesignFiles.map(async f=>{
+    const bytes = new Uint8Array(f.bytes);
+    let bin = '';
+    for(let i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
+    return { name:f.name, isImage:f.isImage, mimeType:f.mimeType, data:btoa(bin) };
+  }));
+
+  const _spawnLang=typeof getLang==='function'?getLang():'en';
   closeSpawnModal();showLoading(true);
   try{
     const r=await fetch('/api/plan/spawn',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({agents,root_cwd:_spawnRootCwd,summary:_spawnSummary,project_id:projectId})});
+      body:JSON.stringify({agents,root_cwd:AppState.spawnRootCwd,summary:AppState.spawnSummary,project_id:projectId,design_files:_designFilesPayload,lang:_spawnLang})});
     const result=await r.json();
-    if(result.error){alert('Spawn 오류: '+result.error);return;}
+    if(result.error){alert(t('err.spawn')+result.error);return;}
 
-    // Lifecycle 화면으로 전환
+    // Kanban 보드로 전환
     if(projectId && projects[projectId]) selectProject(projectId);
-    else showView('lifecycle');
+    else showView('kanban');
 
     for(const s of (result.sessions||[])){
       // Spawn 된 태스크는 Backlog에 먼저 — 사용자가 검토 후 In Progress로 이동
@@ -308,8 +414,8 @@ async function confirmSpawn(){
     document.getElementById('plan-panel').classList.add('collapsed');
     // 홈 화면 초기화
     document.getElementById('home-textarea').value='';
-    _homeFiles=[];_homeCwd='';renderHomeAttachments();
+    AppState.homeFiles=[];AppState.homeCwd='';renderHomeAttachments();
     document.getElementById('home-cwd-badge').style.display='none';
-  }catch(e){alert('Spawn 실패: '+e);}
+  }catch(e){alert(t('err.spawn_fail')+e);}
   finally{showLoading(false);}
 }

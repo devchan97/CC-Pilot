@@ -1,16 +1,16 @@
 """CCPilot -- ProjectManager."""
 
-import json
+import sys
 import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
+from ccpilot.db import get_projects, save_projects
 
 
 # ── 프로젝트 매니저 ───────────────────────────────────────────────────────────
 
 class ProjectManager:
-    SAVE_FILE = Path(__file__).parent.parent / "projects.json"
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -19,10 +19,8 @@ class ProjectManager:
 
     def _load_init(self):
         try:
-            if self.SAVE_FILE.exists():
-                data = json.loads(self.SAVE_FILE.read_text(encoding="utf-8"))
-                for p in data:
-                    self._projects[p["id"]] = p
+            for p in get_projects():
+                self._projects[p["id"]] = p
         except Exception:
             pass
 
@@ -30,7 +28,7 @@ class ProjectManager:
         try:
             with self._lock:
                 data = list(self._projects.values())
-            self.SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            save_projects(data)
         except Exception:
             pass
 

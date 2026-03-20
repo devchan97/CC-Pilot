@@ -23,9 +23,14 @@ a = Analysis(
     datas=_datas,
     hiddenimports=[
         'ccpilot.utils',
+        'ccpilot.types',
+        'ccpilot.db',
+        'ccpilot.http_utils',
         'ccpilot.session',
         'ccpilot.projects',
         'ccpilot.planning',
+        'ccpilot.refactoring',
+        'ccpilot.enhancement',
         'ccpilot.websocket',
         'ccpilot.routes',
         # pywebview 백엔드
@@ -39,7 +44,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'tkinter', 'unittest', 'pydoc', 'doctest', 'test',
+        'unittest', 'pydoc', 'doctest', 'test',
     ],
     noarchive=False,
 )

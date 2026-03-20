@@ -10,7 +10,7 @@
 }
 .home-header{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 .brand-icon-lg{
-  width:48px;height:48px;border-radius:14px;background:var(--accent);
+  width:48px;height:48px;border-radius:14px;
   display:flex;align-items:center;justify-content:center;
   font-size:22px;font-weight:700;color:#fff;
   object-fit:cover;
@@ -25,6 +25,7 @@
   transition:border-color .2s,box-shadow .2s;
 }
 .home-input-box:focus-within{border-color:var(--accent);box-shadow:0 4px 24px rgba(0,0,0,.3),0 0 0 2px var(--accent-glow)}
+.home-input-box.drag-over{border-color:var(--accent);box-shadow:0 4px 24px rgba(0,0,0,.3),0 0 0 3px var(--accent-glow);background:var(--surface2)}
 
 .home-attachments{
   display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 0;
@@ -39,6 +40,12 @@
   padding:0 2px;font-size:10px;cursor:pointer;line-height:1;
 }
 .home-attach-chip button:hover{color:var(--red)}
+.home-attach-img-chip{padding:4px 8px 4px 4px;align-items:center}
+.home-attach-thumb{
+  width:36px;height:36px;object-fit:cover;
+  border-radius:4px;border:1px solid var(--border2);flex-shrink:0;
+}
+.home-attach-img-name{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .home-textarea{
   width:100%;background:transparent;border:none;
@@ -100,6 +107,23 @@
 }
 .home-model-sel:focus{border-color:var(--accent)}
 
+/* 모드 선택 세그먼트 */
+.home-mode-seg{
+  display:flex;align-items:center;gap:2px;
+  background:var(--surface3);border:1px solid var(--border2);
+  border-radius:8px;padding:2px;flex-shrink:0;
+}
+.home-mode-btn{
+  background:transparent;border:none;color:var(--text-dim);
+  font-size:11px;font-weight:500;font-family:var(--font-sans);
+  padding:4px 9px;border-radius:6px;cursor:pointer;
+  transition:background .15s,color .15s;white-space:nowrap;
+}
+.home-mode-btn:hover{color:var(--text)}
+.home-mode-btn.active{
+  background:var(--accent);color:#fff;
+}
+
 .home-send-btn{
   background:var(--accent);color:#fff;border:none;
   width:34px;height:34px;border-radius:10px;
@@ -111,6 +135,7 @@
 
 .home-carousel{
   display:flex;align-items:center;gap:6px;width:100%;
+  padding-bottom:4px;
 }
 .carousel-arrow{
   background:var(--surface2);border:1px solid var(--border2);color:var(--text-mid);
@@ -123,11 +148,13 @@
 .carousel-arrow.carousel-edge{opacity:.25;pointer-events:none}
 .carousel-track-wrap{
   flex:1;overflow:hidden;
+  padding-bottom:4px;margin-bottom:-4px;
 }
 .carousel-track{
   display:flex;gap:8px;
   transition:transform .3s ease;
   will-change:transform;
+  padding-bottom:2px;
 }
 .home-quick-btn{
   background:var(--surface2);border:1px solid var(--border2);color:var(--text-mid);

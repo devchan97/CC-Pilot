@@ -1,6 +1,7 @@
 """CCPilot -- HTTP router (handle function)."""
 
 import asyncio
+import base64 as _b64
 import json
 import os
 import re
@@ -12,9 +13,19 @@ from ccpilot.utils import (
     serve_static, parse_content_length, parse_multipart,
     resolve_cwd, collect_slash_commands, default_projects_dir,
 )
+from ccpilot.http_utils import json_response, error_response
 from ccpilot.session import MGR
 from ccpilot.projects import PROJ_MGR
 from ccpilot.planning import run_planning_claude, write_agents_md
+from ccpilot.refactoring import run_refactoring_claude
+from ccpilot.enhancement import run_enhancement_claude
+
+# 모드별 실행 함수 매핑
+_MODE_FN = {
+    'planning':    run_planning_claude,
+    'refactoring': run_refactoring_claude,
+    'enhancement': run_enhancement_claude,
+}
 from ccpilot.websocket import ws_handshake, ws_recv, ws_send, ws_handler
 
 
@@ -40,7 +51,20 @@ async def handle(reader, writer):
             await writer.drain(); writer.close()
         return
 
-    if method == "GET" and path == "/":
+    if method == "GET" and path == "/favicon.ico":
+        result = serve_static("logo.ico")
+        if result:
+            data, ct = result
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: " + ct.encode() + b"\r\n"
+                b"Content-Length: " + str(len(data)).encode() + b"\r\n"
+                b"Cache-Control: max-age=86400\r\nConnection: close\r\n\r\n" + data
+            )
+        else:
+            writer.write(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain(); writer.close(); return
+
+    elif method == "GET" and path == "/":
         result = serve_static("index.html")
         if result:
             data, ct = result
@@ -65,18 +89,18 @@ async def handle(reader, writer):
             writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
 
     elif method == "GET" and path == "/api/projects":
-        body = json.dumps({"projects": PROJ_MGR.list_all()}, ensure_ascii=False).encode()
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-                     b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+        json_response(writer, {"projects": PROJ_MGR.list_all()})
 
     elif method == "GET" and path.startswith("/api/explorer"):
-        # ?dir=경로 로 디렉토리 내용 조회
         qs = parse_qs(urlparse(path).query)
         req_dir = unquote(qs.get("dir", [""])[0]).strip()
         if not req_dir:
             req_dir = str(default_projects_dir())
         try:
-            base = Path(req_dir)
+            base = Path(req_dir).resolve()
+            # 보안: 허용된 루트(Home 또는 프로젝트 루트) 제한 우회 방어
+            if not base.is_relative_to(Path.home()) and not base.is_relative_to(default_projects_dir()):
+                raise ValueError("접근 권한이 없는 디렉터리입니다.")
             items = []
             if base.is_dir():
                 for p in sorted(base.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
@@ -86,15 +110,65 @@ async def handle(reader, writer):
                         "is_dir": p.is_dir(),
                         "size": p.stat().st_size if p.is_file() else 0,
                     })
-            body = json.dumps({
-                "dir": str(base),
-                "parent": str(base.parent) if base.parent != base else None,
-                "items": items,
-            }, ensure_ascii=False).encode()
+            parent = str(base.parent) if base.parent != base else None
+            body = {"dir": str(base), "parent": parent, "items": items}
         except Exception as e:
-            body = json.dumps({"error": str(e), "dir": req_dir, "parent": None, "items": []}).encode()
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-                     b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+            body = {"error": str(e), "dir": req_dir, "parent": None, "items": []}
+        json_response(writer, body)
+
+    elif method == "GET" and path == "/api/folder-dialog":
+        # OS 네이티브 폴더 선택 다이얼로그 (tkinter, 표준 라이브러리)
+        # run_in_executor로 별도 스레드에서 실행 → asyncio 이벤트 루프 블로킹 방지
+        def _open_dialog():
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                path = filedialog.askdirectory(title="작업 폴더 선택", parent=root)
+                root.destroy()
+                return path or ""
+            except Exception:
+                return ""
+        loop = asyncio.get_event_loop()
+        selected = await loop.run_in_executor(None, _open_dialog)
+        json_response(writer, {"path": selected})
+
+    elif method == "POST" and path == "/api/explorer/read":
+        # Explorer 파일 내용 읽기 (드래그 앤 드롭 첨부용)
+        # as_image=True: 이미지 파일을 base64로 반환
+        try:
+            cl = parse_content_length(hs)
+            body_raw = await reader.read(cl) if cl else b""
+            req = json.loads(body_raw) if body_raw else {}
+        except Exception:
+            req = {}
+        target = req.get("path", "").strip()
+        as_image = req.get("as_image", False)
+        _IMAGE_MIME = {
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+            ".svg": "image/svg+xml",
+        }
+        try:
+            p = Path(target)
+            if not p.is_file():
+                raise ValueError("파일이 아닙니다")
+            if as_image:
+                if p.stat().st_size > 5 * 1024 * 1024:  # 이미지 5MB 제한
+                    raise ValueError("이미지가 너무 큽니다 (최대 5MB)")
+                mime = _IMAGE_MIME.get(p.suffix.lower(), "image/" + p.suffix.lstrip(".").lower())
+                b64 = _b64.b64encode(p.read_bytes()).decode()
+                body = {"b64": b64, "mime_type": mime}
+            else:
+                if p.stat().st_size > 1024 * 512:
+                    raise ValueError("파일이 너무 큽니다 (최대 512KB)")
+                content = p.read_text(encoding="utf-8", errors="replace")
+                body = {"content": content}
+        except Exception as e:
+            body = {"error": str(e)}
+        json_response(writer, body)
 
     elif method == "POST" and path == "/api/explorer/open":
         # 파일탐색기로 경로 열기 (Windows: explorer /select,<path>)
@@ -108,7 +182,9 @@ async def handle(reader, writer):
         ok = False
         if target:
             try:
-                p = Path(target)
+                p = Path(target).resolve()
+                if not p.is_relative_to(Path.home()) and not p.is_relative_to(default_projects_dir()):
+                    raise ValueError("허용되지 않은 경로입니다.")
                 if p.is_file():
                     _sp.Popen(["explorer", f"/select,{p}"])
                 else:
@@ -116,9 +192,7 @@ async def handle(reader, writer):
                 ok = True
             except Exception:
                 pass
-        body = json.dumps({"ok": ok}).encode()
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                     b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+        json_response(writer, {"ok": ok})
 
     elif method == "POST" and path == "/api/projects":
         try:
@@ -129,17 +203,15 @@ async def handle(reader, writer):
             req = {}
         name = req.get("name", "").strip()
         if not name:
-            body = json.dumps({"error": "name 필수"}).encode()
-            writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n"
-                         b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+            error_response(writer, "name 필수")
         else:
             p = PROJ_MGR.create(name, req.get("root_cwd", ""))
-            body = json.dumps(p, ensure_ascii=False).encode()
-            writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-                         b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+            json_response(writer, p)
 
-    elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/rename"):
-        pid = path.split("/")[3]
+    elif method == "POST" and path.startswith("/api/projects/") and path.split("?")[0].endswith("/rename"):
+        clean_path = path.split("?")[0]
+        parts = clean_path.split("/")
+        pid = parts[3] if len(parts) > 3 else ""
         try:
             cl = parse_content_length(hs)
             body_raw = await reader.read(cl) if cl else b""
@@ -147,25 +219,18 @@ async def handle(reader, writer):
         except Exception:
             req = {}
         ok = PROJ_MGR.rename(pid, req.get("name", ""))
-        body = json.dumps({"ok": ok}).encode()
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                     b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+        json_response(writer, {"ok": ok})
 
     elif method == "DELETE" and path.startswith("/api/projects/"):
-        pid = path.split("/")[3]
+        clean_path = path.split("?")[0]
+        parts = clean_path.split("/")
+        pid = parts[3] if len(parts) > 3 else ""
         PROJ_MGR.remove(pid)
-        body = b'{"ok":true}'
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                     b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+        json_response(writer, {"ok": True})
 
     elif method == "GET" and path == "/api/sessions":
-        # 저장된 세션 목록 반환 (복원용)
         saved = MGR.load()
-        body = json.dumps({"sessions": saved}, ensure_ascii=False).encode()
-        writer.write(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
-        )
+        json_response(writer, {"sessions": saved})
 
     elif method == "POST" and path == "/api/sessions/restore":
         # 저장된 세션 목록을 서버 메모리에 일괄 복원
@@ -213,20 +278,14 @@ async def handle(reader, writer):
                 })
             except Exception:
                 pass
-        body = json.dumps({"sessions": restored}, ensure_ascii=False).encode()
-        writer.write(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
-        )
+        json_response(writer, {"sessions": restored})
 
     elif method == "DELETE" and path.startswith("/api/session/"):
-        sid = path.split("/")[3] if len(path.split("/")) > 3 else ""
+        clean_path = path.split("?")[0]
+        parts = clean_path.split("/")
+        sid = parts[3] if len(parts) > 3 else ""
         MGR.remove(sid)
-        body = b'{"ok":true}'
-        writer.write(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
-        )
+        json_response(writer, {"ok": True})
 
     elif method == "POST" and path == "/api/session":
         try:
@@ -264,19 +323,18 @@ async def handle(reader, writer):
         MGR.save()
         # 실제 파일시스템에서 slash commands 수집 (built-in + skills + commands/)
         slash_commands = collect_slash_commands(cwd)
-        body = json.dumps({
+        json_response(writer, {
             "session_id": sess.id, "model": model,
             "cwd": cwd,
             "slash_commands": slash_commands,
-        }).encode()
-        writer.write(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
-        )
+        })
 
     elif method == "POST" and path == "/api/plan/text":
         try:
             cl = parse_content_length(hs)
+            if cl > 50 * 1024 * 1024:
+                error_response(writer, "Payload too large (max 50MB)")
+                await writer.drain(); writer.close(); return
             body_raw = await reader.read(cl) if cl else b""
             req = json.loads(body_raw) if body_raw else {}
         except Exception:
@@ -284,20 +342,39 @@ async def handle(reader, writer):
         doc_text = req.get("text", "")
         cwd      = resolve_cwd(req.get("cwd", ""))
         model    = req.get("model", "")
+        lang     = req.get("lang", "en")
+        mode     = req.get("mode", "planning")
+        design_files_raw = req.get("design_files", [])
+        images = []
+        for df in design_files_raw:
+            try:
+                if "data" not in df:
+                    continue
+                raw = _b64.b64decode(df["data"])
+                if df.get("isImage"):
+                    images.append((raw, df.get("mimeType", "image/png")))
+                else:
+                    doc_text += "\n\n--- Design File: " + df.get("name", "") + " ---\n" + raw.decode("utf-8", errors="replace")
+            except Exception as e:
+                import logging
+                logging.error(f"Design File {df.get('name')} parsing error: {e}")
+        
         if not doc_text.strip():
-            body = json.dumps({"error": "텍스트가 비어 있습니다."}).encode()
-            writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n"
-                         b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
-        else:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, run_planning_claude, doc_text, cwd, model)
-            body = json.dumps(result, ensure_ascii=False).encode()
-            writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-                         b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+            error_response(writer, "텍스트가 비어 있습니다.")
+            await writer.drain(); writer.close(); return
+        loop = asyncio.get_event_loop()
+        run_fn = _MODE_FN.get(mode, run_planning_claude)
+        result = await loop.run_in_executor(
+            None, run_fn, doc_text, cwd, model, lang, images or None
+        )
+        json_response(writer, result)
 
     elif method == "POST" and path == "/api/plan/file":
         try:
             cl = parse_content_length(hs)
+            if cl > 10 * 1024 * 1024:
+                error_response(writer, "Payload too large (max 10MB)")
+                await writer.drain(); writer.close(); return
             body_raw = await reader.read(cl) if cl else b""
         except Exception:
             body_raw = b""
@@ -310,28 +387,27 @@ async def handle(reader, writer):
                     if part.lower().startswith("boundary="):
                         boundary = part[9:].strip('"')
         if not boundary:
-            body = json.dumps({"error": "multipart boundary 없음"}).encode()
-            writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n"
-                         b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
-        else:
-            fields = parse_multipart(body_raw, boundary)
-            file_entry = fields.get("file")
-            cwd_entry  = fields.get("cwd")
-            model_entry = fields.get("model")
-            if not file_entry:
-                body = json.dumps({"error": "파일 필드 없음"}).encode()
-                writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n"
-                             b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
-            else:
-                _, file_bytes = file_entry
-                doc_text = file_bytes.decode("utf-8", errors="replace")
-                cwd   = resolve_cwd(cwd_entry[1].decode(errors="replace").strip() if cwd_entry else "")
-                model = (model_entry[1].decode(errors="replace").strip() if model_entry else "")
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, run_planning_claude, doc_text, cwd, model)
-                body = json.dumps(result, ensure_ascii=False).encode()
-                writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-                             b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+            error_response(writer, "multipart boundary 없음")
+            await writer.drain(); writer.close(); return
+        fields = parse_multipart(body_raw, boundary)
+        file_entry = fields.get("file")
+        cwd_entry  = fields.get("cwd")
+        model_entry = fields.get("model")
+        if not file_entry:
+            error_response(writer, "파일 필드 없음")
+            await writer.drain(); writer.close(); return
+        _, file_bytes = file_entry
+        doc_text = file_bytes.decode("utf-8", errors="replace")
+        cwd   = resolve_cwd(cwd_entry[1].decode(errors="replace").strip() if cwd_entry else "")
+        model = (model_entry[1].decode(errors="replace").strip() if model_entry else "")
+        lang_entry = fields.get("lang")
+        lang = (lang_entry[1].decode(errors="replace").strip() if lang_entry else "en")
+        mode_entry = fields.get("mode")
+        mode = (mode_entry[1].decode(errors="replace").strip() if mode_entry else "planning")
+        loop = asyncio.get_event_loop()
+        run_fn = _MODE_FN.get(mode, run_planning_claude)
+        result = await loop.run_in_executor(None, run_fn, doc_text, cwd, model, lang, None)
+        json_response(writer, result)
 
     elif method == "POST" and path == "/api/plan/spawn":
         try:
@@ -345,6 +421,8 @@ async def handle(reader, writer):
         summary    = req.get("summary", "")
         model      = req.get("model", "")
         project_id = req.get("project_id") or None
+        lang       = req.get("lang", "en")
+        design_files_raw = req.get("design_files", [])
 
         # root_cwd 결정: 명시 경로 > 프로젝트 root_cwd > projects/{프로젝트명}/
         if raw_root:
@@ -361,8 +439,33 @@ async def handle(reader, writer):
                 safe = re.sub(r'\s+', '-', safe).strip('-')[:40] or "project"
                 root_cwd = resolve_cwd("", safe)  # projects/{safe}/
 
+        # 디자인 파일 저장 (design/ 폴더)
+        design_refs = []
+        if design_files_raw and root_cwd:
+            design_dir = Path(root_cwd) / "design"
+            design_dir.mkdir(parents=True, exist_ok=True)
+            for df in design_files_raw:
+                try:
+                    safe_name = re.sub(r'[\\/:*?"<>|]', '_', df.get("name", "design"))
+                    fpath = design_dir / safe_name
+                    fpath.write_bytes(_b64.b64decode(df["data"]))
+                    design_refs.append(str(fpath))
+                except Exception as e:
+                    import logging
+                    logging.error(f"Failed to decode design file {df.get('name')}: {e}")
+
+        if design_refs:
+            if lang == 'ko':
+                note = ("\n\n**디자인 참조 파일 (Read 툴로 직접 읽을 수 있음):**\n" +
+                        "\n".join(f"- `{p}`" for p in design_refs))
+            else:
+                note = ("\n\n**Design reference files (readable via Read tool):**\n" +
+                        "\n".join(f"- `{p}`" for p in design_refs))
+            for ag in agents:
+                ag["init_prompt"] = ag.get("init_prompt", "") + note
+
         # AGENTS.md 생성
-        write_agents_md(root_cwd, summary, agents)
+        write_agents_md(root_cwd, summary, agents, lang=lang)
         sessions_created = []
         for ag in agents:
             cwd_suffix = ag.get("cwd_suffix", "")
@@ -381,12 +484,10 @@ async def handle(reader, writer):
                 "init_prompt": ag.get("init_prompt", ""),
                 "slash_commands": slash_commands,
             })
-        body = json.dumps({"sessions": sessions_created}, ensure_ascii=False).encode()
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
-                     b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+        json_response(writer, {"sessions": sessions_created})
 
-    elif method == "POST" and path.startswith("/api/session/") and path.endswith("/phase"):
-        sid = path.split("/")[3]
+    elif method == "POST" and path.startswith("/api/session/") and path.split("?")[0].endswith("/phase"):
+        sid = path.split("?")[0].split("/")[3]
         try:
             cl = parse_content_length(hs)
             body_raw = await reader.read(cl) if cl else b""
@@ -394,14 +495,10 @@ async def handle(reader, writer):
         except Exception:
             req = {}
         MGR.move_phase(sid, req.get("phase", "backlog"))
-        body = b'{"ok":true}'
-        writer.write(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
-        )
+        json_response(writer, {"ok": True})
 
-    elif method == "POST" and path.startswith("/api/session/") and path.endswith("/rename"):
-        sid = path.split("/")[3]
+    elif method == "POST" and path.startswith("/api/session/") and path.split("?")[0].endswith("/rename"):
+        sid = path.split("?")[0].split("/")[3]
         try:
             cl = parse_content_length(hs)
             body_raw = await reader.read(cl) if cl else b""
@@ -409,11 +506,7 @@ async def handle(reader, writer):
         except Exception:
             req = {}
         MGR.rename(sid, req.get("title", ""))
-        body = b'{"ok":true}'
-        writer.write(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
-        )
+        json_response(writer, {"ok": True})
 
     else:
         writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")

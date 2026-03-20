@@ -12,8 +12,14 @@ function openRexPicker(inputId, callback){
   if(sb.classList.contains('collapsed')){
     sb.classList.remove('collapsed');
     document.body.classList.add('rsidebar-open');
-    if(!_rexDir) rexLoad('');
+    try{ localStorage.setItem('rsidebar_open','1'); }catch(e){}
   }
+  if(!_rexDir) rexLoad('');
+  // 열린 overlay가 있으면 pointer-events를 none으로 해 rsidebar 클릭 허용
+  document.querySelectorAll('.overlay.open').forEach(el=>{
+    el.dataset.rexPickBlocked = '1';
+    el.style.pointerEvents = 'none';
+  });
   // 선택 버튼 표시
   _rexUpdatePickBar();
 }
@@ -27,8 +33,8 @@ function _rexUpdatePickBar(){
       bar.className = 'rex-pick-bar';
       document.getElementById('rsidebar').appendChild(bar);
     }
-    bar.innerHTML = `<span class="rex-pick-hint">현재 폴더를 선택</span>
-      <button class="rex-pick-btn" onclick="rexConfirmPick()">✔ 여기 선택</button>
+    bar.innerHTML = `<span class="rex-pick-hint">${t('explorer.pick_hint')}</span>
+      <button class="rex-pick-btn" onclick="rexConfirmPick()">${t('explorer.pick_confirm')}</button>
       <button class="rex-pick-cancel" onclick="rexCancelPick()">✕</button>`;
   } else {
     bar?.remove();
@@ -61,6 +67,11 @@ function rexOpenSessionCwd(){
 function rexCancelPick(){
   _rexPickTarget = null;
   document.getElementById('rex-pick-bar')?.remove();
+  // overlay pointer-events 복원
+  document.querySelectorAll('.overlay[data-rex-pick-blocked]').forEach(el=>{
+    el.style.pointerEvents = '';
+    delete el.dataset.rexPickBlocked;
+  });
 }
 
 function toggleRsidebar(){
@@ -118,10 +129,14 @@ function rexEndPathEdit(){
   span.style.display = '';
 }
 
+// VSCode 스타일 트리: { path, open } 상태 관리
+const _rexTree = new Map(); // path → { items, open }
+let _rexSelected = null;
+
 async function rexLoad(dir){
   const list = document.getElementById('rex-list');
   if(!list) return;
-  list.innerHTML = '<div class="rex-empty">로딩 중…</div>';
+  list.innerHTML = '<div class="rex-empty">'+t('explorer.loading')+'</div>';
   try{
     const r = await fetch('/api/explorer?dir=' + encodeURIComponent(dir||''));
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -133,29 +148,130 @@ async function rexLoad(dir){
     }
     _rexDir = data.dir;
     _rexUpdatePathBar(_rexDir);
-    // 상위 버튼 활성화 여부
     const upBtn = document.getElementById('rex-up-btn');
     if(upBtn) upBtn.disabled = !data.parent;
-    if(!data.items.length){
-      list.innerHTML = '<div class="rex-empty">빈 폴더</div>';
-    } else {
-      list.innerHTML = data.items.map(item => {
-        const icon = item.is_dir ? '📁' : _rexFileIcon(item.name);
-        const size = item.is_dir ? '' : _rexFmtSize(item.size);
-        return `<div class="rex-item${item.is_dir?' is-dir':''}"
-          data-path="${esc(item.path)}" data-isdir="${item.is_dir}"
-          onclick="rexItemClick(this)"
-          title="${esc(item.path)}">
-          <span class="rex-icon">${icon}</span>
-          <span class="rex-name">${esc(item.name)}</span>
-          ${size?`<span class="rex-size">${size}</span>`:''}
-        </div>`;
-      }).join('');
-    }
-    // pick 모드면 pick bar 현재 경로 업데이트
+    // 루트 변경 시 트리 초기화
+    _rexTree.clear();
+    _rexTree.set(_rexDir, { items: data.items, open: true });
+    _rexSelected = null;
+    _rexRenderTree(list);
     if(_rexPickTarget) _rexUpdatePickBar();
   }catch(e){
-    list.innerHTML = `<div class="rex-empty rex-error">⚠ 로드 실패<br><small>${esc(String(e))}</small></div>`;
+    list.innerHTML = `<div class="rex-empty rex-error">${t('explorer.load_fail')}<br><small>${esc(String(e))}</small></div>`;
+  }
+}
+
+function _rexRenderTree(list){
+  if(!list) return;
+  const root = _rexTree.get(_rexDir);
+  if(!root || !root.items.length){
+    list.innerHTML = '<div class="rex-empty">'+t('explorer.empty')+'</div>';
+    return;
+  }
+  list.innerHTML = '';
+  _rexRenderItems(list, root.items, 0);
+}
+
+function _rexRenderItems(container, items, depth){
+  for(const item of items){
+    const row = document.createElement('div');
+    row.className = 'rex-row' + (item.is_dir ? ' rex-dir' : ' rex-file') + (_rexSelected === item.path ? ' rex-selected' : '');
+    row.dataset.path = item.path;
+    row.dataset.isdir = item.is_dir;
+    row.dataset.depth = depth;
+    row.style.paddingLeft = (8 + depth * 12) + 'px';
+    row.title = item.path;
+
+    const chevron = document.createElement('span');
+    chevron.className = 'rex-chevron';
+    if(item.is_dir){
+      const node = _rexTree.get(item.path);
+      chevron.textContent = (node && node.open) ? '▾' : '▸';
+    } else {
+      chevron.textContent = '';
+    }
+
+    const icon = document.createElement('span');
+    icon.className = 'rex-icon';
+    icon.textContent = item.is_dir ? (_rexTree.get(item.path)?.open ? '📂' : '📁') : _rexFileIcon(item.name);
+
+    const name = document.createElement('span');
+    name.className = 'rex-name';
+    name.textContent = item.name;
+
+    row.appendChild(chevron);
+    row.appendChild(icon);
+    row.appendChild(name);
+
+    // 파일만 드래그 가능 (홈 textarea에 첨부) — 지원하지 않는 형식은 드래그 불가
+    if(!item.is_dir){
+      const _ext = item.name.split('.').pop().toLowerCase();
+      if(typeof CLAUDE_SUPPORTED_EXTS !== 'undefined' && !CLAUDE_SUPPORTED_EXTS.has(_ext)){
+        row.draggable = false;
+        row.classList.add('rex-unsupported');
+        row.title = item.path + ' (unsupported)';
+      } else {
+        row.draggable = true;
+        const _isImg = typeof _IMAGE_EXTS !== 'undefined' && _IMAGE_EXTS.has(_ext);
+        row.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/rex-path', item.path);
+          if(_isImg) e.dataTransfer.setData('text/rex-is-image', '1');
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+      }
+    }
+
+    if(!item.is_dir){
+      const size = document.createElement('span');
+      size.className = 'rex-size';
+      size.textContent = _rexFmtSize(item.size);
+      row.appendChild(size);
+    }
+
+    row.addEventListener('click', (e) => _rexRowClick(e, row, item));
+    container.appendChild(row);
+
+    // 열린 폴더면 자식 렌더
+    if(item.is_dir && _rexTree.get(item.path)?.open){
+      const node = _rexTree.get(item.path);
+      if(node.items) _rexRenderItems(container, node.items, depth + 1);
+    }
+  }
+}
+
+async function _rexRowClick(e, row, item){
+  e.stopPropagation();
+  _rexSelected = item.path;
+
+  if(item.is_dir){
+    const node = _rexTree.get(item.path);
+    if(node){
+      // 이미 로드됨 → 토글
+      node.open = !node.open;
+      _rexRenderTree(document.getElementById('rex-list'));
+    } else {
+      // 처음 열기 → fetch
+      try{
+        const r = await fetch('/api/explorer?dir=' + encodeURIComponent(item.path));
+        const data = await r.json();
+        _rexTree.set(item.path, { items: data.items || [], open: true });
+      }catch(e){ _rexTree.set(item.path, { items: [], open: true }); }
+      _rexRenderTree(document.getElementById('rex-list'));
+    }
+  } else {
+    // 파일: 선택만 (더블클릭은 탐색기 열기)
+    _rexRenderTree(document.getElementById('rex-list'));
+    // 더블클릭 감지
+    const now = Date.now();
+    if(_rexLastClick.item === item.path && now - _rexLastClick.time < 500){
+      _rexLastClick = { item: null, time: 0 };
+      fetch('/api/explorer/open', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({path: item.path})
+      }).catch(()=>{});
+      return;
+    }
+    _rexLastClick = { item: item.path, time: now };
   }
 }
 
@@ -163,27 +279,7 @@ function _rexUpdatePathBar(path){
   const span = document.getElementById('rex-path');
   if(!span) return;
   span.textContent = path;
-  span.title = '클릭하여 경로 직접 입력 — ' + path;
-}
-
-function rexItemClick(el){
-  const path = el.dataset.path;
-  const isDir = el.dataset.isdir === 'true';
-  const now = Date.now();
-
-  // 더블클릭 감지 (같은 아이템, 500ms 이내) → 탐색기에서 열기
-  if(_rexLastClick.item === el && now - _rexLastClick.time < 500){
-    _rexLastClick = { item: null, time: 0 };
-    fetch('/api/explorer/open', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({path})
-    }).catch(()=>{});
-    return;
-  }
-  _rexLastClick = { item: el, time: now };
-
-  // 단일클릭: 폴더면 해당 경로로 이동 (rsidebar-path 갱신), 파일은 무시
-  if(isDir) rexLoad(path);
+  span.title = t('explorer.path_hint') + path;
 }
 
 function rexGoUp(){
@@ -230,6 +326,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   restoreUIState();
   restoreSidebarState();
   restoreRsidebarState();
+  _restoreUsagePlan();
   ['home-model-sel','modal-model'].forEach(id=>{
     document.getElementById(id)?.addEventListener('change',function(){syncModelSels(id,this.value);});
   });
@@ -237,7 +334,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await loadProjects();
 
   // 저장된 활성 프로젝트 복원
-  const savedPid = _activeProjectId;
+  const savedPid = AppState.activeProjectId;
   if(savedPid && projects[savedPid]){
     selectProject(savedPid);
   } else {

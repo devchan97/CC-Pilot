@@ -7,7 +7,7 @@
   <title>CCPilot</title>
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/home.css">
-  <link rel="stylesheet" href="/static/css/lifecycle.css">
+  <link rel="stylesheet" href="/static/css/kanban.css">
 </head>
 
 <body>
@@ -16,21 +16,45 @@
   <nav class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand" onclick="showView('home');clearProjectSelection()" title="홈으로" style="cursor:pointer">
-        <img class="brand-icon-sm" src="/static/logo.png" alt="CCPilot"
+        <img class="brand-icon-sm" src="/static/logo.ico" alt="CCPilot"
           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <div class="brand-icon-sm brand-icon-fallback" style="display:none">C</div>
         <span class="sidebar-brand-name">CCPilot</span>
       </div>
       <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="테마 전환">🌙</button>
+      <button class="lang-btn" id="lang-btn" onclick="toggleLang()" title="Switch Language">KO</button>
     </div>
 
     <button class="sidebar-new-proj-btn" onclick="openProjectModal()">
-      <span class="sidebar-new-icon">+</span> 새 프로젝트
+      <span class="sidebar-new-icon">+</span> <span data-i18n="nav.new_project">New Project</span>
     </button>
 
-    <div class="sidebar-section-label">Projects</div>
+    <div class="sidebar-section-label" data-i18n="nav.projects">Projects</div>
     <div class="sidebar-list" id="sidebar-list">
       <!-- JS로 렌더 -->
+    </div>
+
+    <div class="sidebar-trash-wrap" id="sidebar-trash-wrap" style="display:none">
+      <div class="sidebar-section-label sidebar-trash-label">
+        <span data-i18n="nav.trash">🗑 Trash</span>
+        <button class="trash-clear-btn" onclick="clearTrash()" data-i18n-title="nav.trash_clear" data-i18n="nav.trash_clear" title="Clear">Clear</button>
+      </div>
+      <div class="sidebar-list" id="trash-list"></div>
+    </div>
+
+    <div class="sidebar-usage" id="sidebar-usage">
+      <div class="usage-header">
+        <div class="usage-label">5h Usage</div>
+        <select class="usage-plan-sel" id="usage-plan-sel" onchange="onUsagePlanChange(this.value)" title="플랜 선택">
+          <option value="5">Pro ($5)</option>
+          <option value="10">Max $10</option>
+          <option value="20">Max $20</option>
+        </select>
+      </div>
+      <div class="usage-bar-wrap">
+        <div class="usage-bar" id="usage-bar"></div>
+      </div>
+      <div class="usage-detail" id="usage-detail">—</div>
     </div>
 
   </nav>
@@ -46,55 +70,58 @@
       <div class="home-wrap">
         <div class="home-header">
           <div class="home-logo">
-            <img class="brand-icon-lg" src="/static/logo.png" alt="CCPilot"
+            <img class="brand-icon-lg" src="/static/logo.ico" alt="CCPilot"
               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
             <div class="brand-icon-lg brand-icon-fallback" style="display:none">C</div>
           </div>
           <h1 class="home-title">CCPilot</h1>
-          <p class="home-sub">프로젝트를 설명하거나 문서를 업로드하면<br>Claude Code를 사용하여 에이전트 팀을 설계합니다</p>
+          <p class="home-sub" data-i18n="home.sub">Describe your project...</p>
         </div>
 
         <div class="home-input-box">
           <!-- 파일 첨부 미리보기 -->
           <div class="home-attachments" id="home-attachments"></div>
 
-          <textarea class="home-textarea" id="home-textarea"
-            placeholder="프로젝트 요구사항, PRD, 아이디어를 입력하세요…&#10;&#10;예: Next.js + FastAPI 기반 쇼핑몰. 사용자 인증, 상품 목록, 결제 기능 필요."
+          <textarea class="home-textarea" id="home-textarea" data-i18n-placeholder="home.placeholder"
+            placeholder="Enter project requirements..."
             rows="4"></textarea>
 
           <div class="home-input-foot">
             <div class="home-left-actions">
               <select id="home-model-sel" class="home-model-sel" title="모델 선택">
-                <option value="">Sonnet 4.6</option>
                 <option value="sonnet">Sonnet 4.6</option>
                 <option value="opus">Opus 4.6</option>
                 <option value="haiku">Haiku 4.5</option>
               </select>
               <button class="home-attach-btn" onclick="document.getElementById('home-file-input').click()"
-                title="파일 첨부 (.md/.txt)">
+                data-i18n-title="home.attach_file" title="Attach file (.md/.txt)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path
                     d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
                 </svg>
               </button>
-              <input type="file" id="home-file-input" accept=".md,.txt" multiple style="display:none"
+              <input type="file" id="home-file-input" accept=".txt,.md,.markdown,.rst,.csv,.tsv,.log,.js,.ts,.jsx,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.php,.swift,.kt,.scala,.r,.m,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd,.json,.yaml,.yml,.toml,.ini,.env,.conf,.config,.xml,.html,.htm,.css,.scss,.sass,.less,.tex,.org,.adoc,.sql,.graphql,.proto,.vue,.svelte,.astro,.prisma,.png,.jpg,.jpeg,.gif,.webp,.bmp,.svg" multiple style="display:none"
                 onchange="onHomeFileAttach(this)">
 
-              <button class="home-attach-btn" onclick="openRexPicker(null, function(p){setHomeCwd(p)})"
-                title="작업 폴더 선택 (Explorer)">
+              <button class="home-attach-btn" onclick="openFolderDialog()" data-i18n-title="home.select_folder" title="Select working folder">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                 </svg>
               </button>
 
-              <span class="home-cwd-badge" id="home-cwd-badge" style="display:none"
-                onclick="openRexPicker(null, function(p){setHomeCwd(p)})" title="클릭하여 폴더 재선택">
+              <span class="home-cwd-badge" id="home-cwd-badge" style="display:none" onclick="openFolderDialog()"
+                data-i18n-title="home.reselect_folder" title="Click to re-select folder">
               </span>
               <button class="home-cwd-clear" id="home-cwd-clear-btn" style="display:none" onclick="clearHomeCwd()"
-                title="경로 지우기">✕</button>
+                data-i18n-title="home.clear_path" title="Clear path">✕</button>
             </div>
 
             <div class="home-right-actions">
+              <div class="home-mode-seg" id="home-mode-seg">
+                <button class="home-mode-btn active" data-mode="planning" data-i18n="home.mode.planning" onclick="setHomeMode('planning')">Plan</button>
+                <button class="home-mode-btn" data-mode="refactoring" data-i18n="home.mode.refactoring" onclick="setHomeMode('refactoring')">Refactor</button>
+                <button class="home-mode-btn" data-mode="enhancement" data-i18n="home.mode.enhancement" onclick="setHomeMode('enhancement')">Enhance</button>
+              </div>
               <button class="home-send-btn" id="home-send-btn" onclick="runHomeAnalysis()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                   <line x1="22" y1="2" x2="11" y2="13" />
@@ -117,17 +144,17 @@
       </div>
     </div>
 
-    <!-- ── Lifecycle 화면 (view=lifecycle) ── -->
-    <div class="view hidden" id="view-lifecycle">
-      <!-- Lifecycle 상단 바 -->
-      <div class="lifecycle-topbar">
-        <div class="lifecycle-project-info">
-          <span class="lifecycle-project-name" id="lifecycle-project-name">프로젝트</span>
-          <span class="lifecycle-project-cwd" id="lifecycle-project-cwd"></span>
+    <!-- ── Kanban 보드 (view=kanban) ── -->
+    <div class="view hidden" id="view-kanban">
+      <!-- Kanban 상단 바 -->
+      <div class="kanban-topbar">
+        <div class="kanban-project-info">
+          <span class="kanban-project-name" id="kanban-project-name">프로젝트</span>
+          <span class="kanban-project-cwd" id="kanban-project-cwd"></span>
         </div>
-        <div class="lifecycle-topbar-actions">
-          <button class="btn-ghost lc-btn" onclick="togglePlanPanel()" id="plan-toggle-btn">⚡ 팀 자동 생성</button>
-          <button class="btn-primary lc-btn" onclick="openNewModal('backlog')">+ 태스크</button>
+        <div class="kanban-topbar-actions">
+          <button class="btn-ghost kb-btn" onclick="togglePlanPanel()" id="plan-toggle-btn" data-i18n="kanban.auto_team">⚡ Auto-generate Team</button>
+          <button class="btn-primary kb-btn" onclick="openNewModal('backlog')" data-i18n="kanban.add_task">+ Task</button>
         </div>
       </div>
 
@@ -135,31 +162,30 @@
       <div id="plan-panel" class="plan-panel collapsed">
         <div class="plan-panel-inner">
           <div class="plan-panel-header">
-            <span class="plan-panel-title">Agent Team 자동 생성</span>
-            <span class="plan-panel-sub">프로젝트 문서를 입력하면 Claude가 에이전트 팀을 설계합니다</span>
+            <span class="plan-panel-title" data-i18n="plan.title">Auto-generate Agent Team</span>
+            <span class="plan-panel-sub" data-i18n="plan.sub">Paste project documents — Claude will design your agent team</span>
           </div>
           <div class="plan-tabs">
-            <button class="plan-tab active" onclick="switchPlanTab('text')">텍스트 입력</button>
-            <button class="plan-tab" onclick="switchPlanTab('file')">파일 업로드</button>
+            <button class="plan-tab active" onclick="switchPlanTab('text')" data-i18n="plan.tab_text">Text Input</button>
+            <button class="plan-tab" onclick="switchPlanTab('file')" data-i18n="plan.tab_file">File Upload</button>
           </div>
           <div id="plan-tab-text" class="plan-tab-content">
-            <textarea id="plan-text" class="plan-textarea" placeholder="프로젝트 설명, 요구사항, PRD 등을 붙여넣으세요…"></textarea>
+            <textarea id="plan-text" class="plan-textarea" data-i18n-placeholder="plan.textarea_placeholder" placeholder="Paste your project description..."></textarea>
           </div>
           <div id="plan-tab-file" class="plan-tab-content hidden">
             <label class="file-drop-area" for="plan-file" id="file-drop-label">
               <span class="file-drop-icon">📄</span>
-              <span class="file-drop-text">클릭하거나 .md / .txt 파일을 드래그</span>
-              <span class="file-drop-name" id="plan-file-name">선택된 파일 없음</span>
+              <span class="file-drop-text" data-i18n="plan.file_drop">Click or drag a .md / .txt file here</span>
+              <span class="file-drop-name" id="plan-file-name" data-i18n="plan.no_file">No file selected</span>
             </label>
-            <input type="file" id="plan-file" accept=".md,.txt" style="display:none" onchange="onFileSelect(this)">
+            <input type="file" id="plan-file" accept=".txt,.md,.markdown,.rst,.csv,.tsv,.log,.js,.ts,.jsx,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.php,.swift,.kt,.scala,.r,.m,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd,.json,.yaml,.yml,.toml,.ini,.env,.conf,.config,.xml,.html,.htm,.css,.scss,.sass,.less,.tex,.org,.adoc,.sql,.graphql,.proto,.vue,.svelte,.astro,.prisma" style="display:none" onchange="onFileSelect(this)">
           </div>
           <div class="plan-foot">
             <div class="plan-cwd-wrap">
-              <input id="plan-cwd" class="plan-cwd-input" placeholder="프로젝트 루트 경로 (비우면 서버 현재 디렉토리)">
-              <button class="btn-ghost plan-cwd-btn" onclick="openRexPicker('plan-cwd')"
-                title="Explorer로 폴더 선택">📁</button>
+              <input id="plan-cwd" class="plan-cwd-input" data-i18n-placeholder="plan.path_placeholder" placeholder="Project root path...">
+              <button class="btn-ghost plan-cwd-btn" onclick="openRexPicker('plan-cwd')" data-i18n-title="plan.select_folder" title="Select folder">📁</button>
             </div>
-            <button class="btn-primary" id="plan-run-btn" onclick="runPlanning()">분석 시작</button>
+            <button class="btn-primary" id="plan-run-btn" onclick="runPlanning()" data-i18n="plan.run">Analyze</button>
           </div>
         </div>
       </div>
@@ -169,58 +195,58 @@
         <div class="col" data-phase="backlog">
           <div class="col-head">
             <div class="col-dot"></div>
-            <div class="col-title">Backlog</div>
+            <div class="col-title" data-i18n="kanban.col_backlog">Backlog</div>
             <div class="col-count" id="cnt-backlog">0</div>
           </div>
           <div class="col-body" id="col-backlog">
-            <div class="col-empty" id="empty-backlog">태스크 없음</div>
+            <div class="col-empty" id="empty-backlog" data-i18n="kanban.no_tasks">No tasks</div>
           </div>
-          <button class="col-add-btn" onclick="openNewModal('backlog')">+ 태스크 추가</button>
+          <button class="col-add-btn" onclick="openNewModal('backlog')" data-i18n="kanban.add_task_col">+ Add Task</button>
         </div>
         <div class="col" data-phase="inprogress">
           <div class="col-head">
             <div class="col-dot"></div>
-            <div class="col-title">In Progress</div>
+            <div class="col-title" data-i18n="kanban.col_inprogress">In Progress</div>
             <div class="col-count" id="cnt-inprogress">0</div>
           </div>
           <div class="col-body" id="col-inprogress">
-            <div class="col-empty" id="empty-inprogress">태스크 없음</div>
+            <div class="col-empty" id="empty-inprogress" data-i18n="kanban.no_tasks">No tasks</div>
           </div>
-          <button class="col-add-btn" onclick="openNewModal('inprogress')">+ 태스크 추가</button>
+          <button class="col-add-btn" onclick="openNewModal('inprogress')" data-i18n="kanban.add_task_col">+ Add Task</button>
         </div>
         <div class="col" data-phase="done">
           <div class="col-head">
             <div class="col-dot"></div>
-            <div class="col-title">Done</div>
+            <div class="col-title" data-i18n="kanban.col_done">Done</div>
             <div class="col-count" id="cnt-done">0</div>
           </div>
           <div class="col-body" id="col-done">
-            <div class="col-empty" id="empty-done">태스크 없음</div>
+            <div class="col-empty" id="empty-done" data-i18n="kanban.no_tasks">No tasks</div>
           </div>
-          <button class="col-add-btn" onclick="openNewModal('done')">+ 태스크 추가</button>
+          <button class="col-add-btn" onclick="openNewModal('done')" data-i18n="kanban.add_task_col">+ Add Task</button>
         </div>
       </div>
-    </div><!-- /view-lifecycle -->
+    </div><!-- /view-kanban -->
 
   </div><!-- /main-area -->
 
   <!-- ── 오른쪽 Explorer 사이드바 ── -->
   <nav class="rsidebar collapsed" id="rsidebar">
     <div class="rsidebar-header">
-      <span class="rsidebar-title">Explorer</span>
-      <button class="rsidebar-close-btn" onclick="toggleRsidebar()" title="닫기">✕</button>
+      <span class="rsidebar-title" data-i18n="explorer.title">Explorer</span>
     </div>
     <div class="rsidebar-path-wrap" id="rex-path-wrap">
       <span class="rsidebar-path" id="rex-path" title="클릭하여 경로 직접 입력" onclick="rexStartPathEdit()"></span>
-      <input class="rsidebar-path-input" id="rex-path-input" style="display:none" placeholder="경로 직접 입력 후 Enter…"
+      <input class="rsidebar-path-input" id="rex-path-input" style="display:none" data-i18n-placeholder="explorer.path_placeholder" placeholder="Type a path and press Enter…"
         onkeydown="rexPathInputKey(event)" onblur="rexPathInputBlur()">
     </div>
     <div class="rsidebar-toolbar">
-      <button class="rsidebar-tool-btn" id="rex-up-btn" onclick="rexGoUp()" title="상위 폴더">↑ 상위</button>
-      <button class="rsidebar-tool-btn" onclick="rexRefresh()" title="새로고침">↺</button>
+      <button class="rsidebar-tool-btn" id="rex-up-btn" onclick="rexGoUp()" data-i18n-title="explorer.up" data-i18n="explorer.up" title="↑ Up">↑ Up</button>
+      <button class="rsidebar-tool-btn" onclick="rexRefresh()" data-i18n-title="explorer.refresh" title="↺">↺</button>
+      <button class="rsidebar-tool-btn--cwd" onclick="openFolderDialog()" data-i18n="explorer.browse" data-i18n-title="explorer.browse" title="📁 Browse">📁 Browse</button>
     </div>
     <div class="rsidebar-list" id="rex-list">
-      <div class="rex-empty">로딩 중…</div>
+      <div class="rex-empty" data-i18n="explorer.loading">Loading…</div>
     </div>
   </nav>
 
@@ -229,16 +255,28 @@
 
   <!-- ── 모달들 ── -->
 
+  <!-- 커스텀 Confirm 모달 -->
+  <div class="overlay" id="confirm-overlay">
+    <div class="modal confirm-modal">
+      <div class="confirm-icon" id="confirm-icon">⚠</div>
+      <div class="confirm-msg" id="confirm-msg"></div>
+      <div class="modal-btns">
+        <button class="btn-ghost" id="confirm-cancel-btn" data-i18n="confirm.cancel">Cancel</button>
+        <button class="btn-primary confirm-ok-btn" id="confirm-ok-btn" data-i18n="confirm.ok">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 새 태스크 -->
   <div class="overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
-      <h3>새 태스크</h3>
+      <h3 data-i18n="modal.new_task">New Task</h3>
       <div>
-        <label>태스크 이름</label>
-        <input type="text" id="modal-title" placeholder="예: 로그인 버그 수정" />
+        <label data-i18n="modal.task_name">Task Name</label>
+        <input type="text" id="modal-title" data-i18n-placeholder="modal.task_name_placeholder" placeholder="e.g. Fix login bug" />
       </div>
       <div>
-        <label>초기 단계</label>
+        <label data-i18n="modal.initial_phase">Initial Phase</label>
         <select id="modal-phase">
           <option value="backlog">Backlog</option>
           <option value="inprogress">In Progress</option>
@@ -246,29 +284,28 @@
         </select>
       </div>
       <div>
-        <label>작업 경로 (선택)</label>
+        <label data-i18n="modal.cwd">Working Directory (optional)</label>
         <div class="modal-cwd-wrap">
-          <input type="text" id="modal-cwd" placeholder="비우면 서버 기본 디렉토리" />
-          <button class="btn-ghost modal-cwd-btn" onclick="openRexPicker('modal-cwd')"
-            title="Explorer로 폴더 선택">📁</button>
+          <input type="text" id="modal-cwd" data-i18n-placeholder="modal.cwd_placeholder" placeholder="Leave empty for server default" />
+          <button class="btn-ghost modal-cwd-btn" onclick="openRexPicker('modal-cwd')" title="폴더 선택">📁</button>
         </div>
       </div>
       <div>
-        <label>모델 선택</label>
+        <label data-i18n="modal.model">Model</label>
         <select id="modal-model">
-          <option value="">기본 (Sonnet 4.6)</option>
+          <option value="" data-i18n="modal.model_default">Default (Sonnet 4.6)</option>
           <option value="sonnet">Sonnet 4.6</option>
           <option value="opus">Opus 4.6</option>
           <option value="haiku">Haiku 4.5</option>
         </select>
       </div>
       <div>
-        <label>초기 메시지 (선택)</label>
-        <textarea id="modal-init-prompt" class="modal-init-prompt" placeholder="세션 생성 후 자동 전송할 메시지" rows="3"></textarea>
+        <label data-i18n="modal.init_prompt">Initial Message (optional)</label>
+        <textarea id="modal-init-prompt" class="modal-init-prompt" data-i18n-placeholder="modal.init_prompt_placeholder" placeholder="Message to auto-send..." rows="3"></textarea>
       </div>
       <div class="modal-btns">
-        <button class="btn-ghost" onclick="closeModal()">취소</button>
-        <button class="btn-primary" onclick="confirmNewTask()">만들기</button>
+        <button class="btn-ghost" onclick="closeModal()" data-i18n="modal.cancel">Cancel</button>
+        <button class="btn-primary" onclick="confirmNewTask()" data-i18n="modal.create">Create</button>
       </div>
     </div>
   </div>
@@ -276,22 +313,21 @@
   <!-- 새 프로젝트 -->
   <div class="overlay" id="project-modal-overlay" onclick="if(event.target===this)closeProjectModal()">
     <div class="modal">
-      <h3>새 프로젝트</h3>
+      <h3 data-i18n="modal.new_project">New Project</h3>
       <div>
-        <label>프로젝트 이름</label>
-        <input type="text" id="proj-modal-name" placeholder="예: 쇼핑몰 v2" />
+        <label data-i18n="modal.project_name">Project Name</label>
+        <input type="text" id="proj-modal-name" data-i18n-placeholder="modal.project_name_placeholder" placeholder="e.g. Shopping Mall v2" />
       </div>
       <div>
-        <label>루트 경로 (선택)</label>
+        <label data-i18n="modal.root_path">Root Path (optional)</label>
         <div class="modal-cwd-wrap">
-          <input type="text" id="proj-modal-cwd" placeholder="비우면 서버 기본 디렉토리" />
-          <button class="btn-ghost modal-cwd-btn" onclick="openRexPicker('proj-modal-cwd')"
-            title="Explorer로 폴더 선택">📁</button>
+          <input type="text" id="proj-modal-cwd" data-i18n-placeholder="modal.cwd_placeholder" placeholder="Leave empty for server default" />
+          <button class="btn-ghost modal-cwd-btn" onclick="openRexPicker('proj-modal-cwd')" title="폴더 선택">📁</button>
         </div>
       </div>
       <div class="modal-btns">
-        <button class="btn-ghost" onclick="closeProjectModal()">취소</button>
-        <button class="btn-primary" onclick="confirmNewProject()">만들기</button>
+        <button class="btn-ghost" onclick="closeProjectModal()" data-i18n="modal.cancel">Cancel</button>
+        <button class="btn-primary" onclick="confirmNewProject()" data-i18n="modal.create">Create</button>
       </div>
     </div>
   </div>
@@ -299,12 +335,25 @@
   <!-- Spawn 제안 -->
   <div class="overlay" id="spawn-overlay" onclick="if(event.target===this)closeSpawnModal()">
     <div class="modal spawn-modal">
-      <h3>에이전트 팀 구성 제안</h3>
+      <h3 data-i18n="spawn.title">Agent Team Proposal</h3>
       <p class="spawn-summary" id="spawn-summary"></p>
+      <div id="spawn-design-section" class="spawn-design-section" style="display:none">
+        <div class="spawn-design-header">
+          <span class="spawn-design-title">🎨 Design Reference <span class="spawn-design-optional">(optional)</span></span>
+          <label class="spawn-design-add-btn" for="spawn-design-input" title="Attach design files">+</label>
+          <input type="file" id="spawn-design-input"
+            accept=".md,.txt,.json,.png,.jpg,.jpeg,.webp"
+            multiple style="display:none"
+            onchange="onSpawnDesignAttach(this)">
+        </div>
+        <div class="spawn-design-hint">Design system docs, mockup images, concept art</div>
+        <div id="spawn-design-files" class="spawn-design-files"></div>
+      </div>
+      <div id="spawn-prereq-wrap"></div>
       <div id="spawn-agent-list"></div>
       <div class="modal-btns">
-        <button class="btn-ghost" onclick="closeSpawnModal()">취소</button>
-        <button class="btn-primary" onclick="confirmSpawn()">승인 &amp; Spawn</button>
+        <button class="btn-ghost" onclick="closeSpawnModal()" data-i18n="modal.cancel">Cancel</button>
+        <button class="btn-primary" onclick="confirmSpawn()" data-i18n="spawn.approve">Approve &amp; Spawn</button>
       </div>
     </div>
   </div>
@@ -316,14 +365,14 @@
         <div class="detail-dot" id="detail-dot"></div>
         <div class="detail-title" id="detail-title"></div>
         <div class="detail-sl" id="detail-sl"></div>
-        <button class="task-btn detail-files-btn" id="detail-files-btn" title="Explorer에서 열기"
+        <button class="task-btn detail-files-btn" id="detail-files-btn" data-i18n-title="detail.open_explorer" title="Open in Explorer"
           onclick="rexOpenSessionCwd()" style="display:none">📁</button>
         <button class="task-btn" onclick="closeDetailModal()">✕</button>
       </div>
       <div class="detail-chat" id="detail-chat"></div>
       <div class="detail-foot">
         <div class="cmd-dropdown" id="dd-detail"></div>
-        <textarea class="task-ta" id="ta-detail" placeholder="메시지  /clear  /compact  (Enter=전송, Shift+Enter=줄바꿈)"
+        <textarea class="task-ta" id="ta-detail" data-i18n-placeholder="detail.input_placeholder" placeholder="Message  /clear  /compact  (Enter=send, Shift+Enter=newline)"
           rows="1" disabled></textarea>
         <button class="btn-send" id="send-detail" disabled>↑</button>
       </div>
@@ -331,11 +380,13 @@
   </div>
 
   <script src="/static/js/constants.js"></script>
+  <script src="/static/js/i18n.js"></script>
   <script src="/static/js/ws.js"></script>
   <script src="/static/js/home.js"></script>
-  <script src="/static/js/lifecycle.js"></script>
+  <script src="/static/js/kanban.js"></script>
   <script src="/static/js/modal.js"></script>
   <script src="/static/js/explorer.js"></script>
+  <script>document.addEventListener('contextmenu', e => e.preventDefault());</script>
 </body>
 
 </html>

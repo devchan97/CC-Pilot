@@ -6,7 +6,7 @@ function connectWS(sid){
   const proto=location.protocol==='https:'?'wss':'ws';
   const ws=new WebSocket(`${proto}://${location.host}/ws/${sid}`);
   sessions[sid].ws=ws;
-  ws.onopen=()=>{ws.send(JSON.stringify({type:'heartbeat'}));setSl(sid,'Claude 연결 중…');};
+  ws.onopen=()=>{ws.send(JSON.stringify({type:'heartbeat'}));setSl(sid,t('ws.connecting'));};
   ws.onmessage=evt=>{
     let msg;try{msg=JSON.parse(evt.data);}catch{return;}
     const s=sessions[msg.session_id||sid];if(!s)return;
@@ -14,7 +14,7 @@ function connectWS(sid){
   };
   ws.onclose=()=>{
     if(!sessions[sid])return;
-    sessions[sid].verified=false;setDot(sid,'err');setSl(sid,'연결 끊김');
+    sessions[sid].verified=false;setDot(sid,'err');setSl(sid,t('ws.disconnected'));
     if(_detailSid===sid){document.getElementById('ta-detail').disabled=true;document.getElementById('send-detail').disabled=true;}
   };
 }
@@ -41,12 +41,14 @@ function handleMsg(sid,s,msg){
     s.status=msg.status;const html=renderSlHtml(msg.status);setSl(sid,html);
     if(_detailSid===sid)document.getElementById('detail-sl').innerHTML=html;
     document.getElementById('card-'+sid)?.classList.toggle('thinking',!!msg.status.thinking);
-    setDot(sid,msg.status.thinking?'busy':'ok');return;
+    setDot(sid,msg.status.thinking?'busy':'ok');
+    updateSidebarUsage();
+    return;
   }
   if(msg.type==='cleared'){
     s.chatLog=[];s.aiEl=null;s.aiBuf='';s.lastResponse='';
-    pushLog(sid,{role:'sys',text:'Context 및 화면이 초기화되었습니다.'});updatePreview(sid);
-    if(_detailSid===sid){const chat=document.getElementById('detail-chat');if(chat)chat.innerHTML='';appendDetailSys('Context 및 화면이 초기화되었습니다.');}
+    pushLog(sid,{role:'sys',text:t('ws.cleared')});updatePreview(sid);
+    if(_detailSid===sid){const chat=document.getElementById('detail-chat');if(chat)chat.innerHTML='';appendDetailSys(t('ws.cleared'));}
     return;
   }
   if(msg.type==='sys_notice'){
@@ -93,10 +95,21 @@ function handleMsg(sid,s,msg){
   }
   if(msg.type==='error'){
     if(s.aiEl)finalizeAiEl(sid,s);
-    pushLog(sid,{role:'sys',text:'오류: '+msg.message});
-    if(_detailSid===sid){appendDetailSys('오류: '+msg.message);scrollDetailBottom();}
+    pushLog(sid,{role:'sys',text:t('ws.error')+msg.message});
+    if(_detailSid===sid){appendDetailSys(t('ws.error')+msg.message);scrollDetailBottom();}
     setInputBusy(sid,false);
     if(_detailSid===sid){document.getElementById('ta-detail').disabled=false;document.getElementById('send-detail').disabled=false;}
+    return;
+  }
+  if(msg.type==='usage_limit'){
+    if(s.aiEl)finalizeAiEl(sid,s);
+    const resetText = msg.reset_time ? ` (${t('err.usage_limit_reset')}: ${msg.reset_time})` : '';
+    const text = `${t('err.usage_limit')}${resetText}\n\n${msg.message}`;
+    pushLog(sid,{role:'sys',text});
+    if(_detailSid===sid){appendDetailSys(text);scrollDetailBottom();}
+    setInputBusy(sid,false);
+    if(_detailSid===sid){document.getElementById('ta-detail').disabled=false;document.getElementById('send-detail').disabled=false;}
+    return;
   }
 }
 
@@ -146,7 +159,7 @@ function setInputBusy(sid,busy){
 
 // ── statusline ─────────────────────────────────────────────────────────────────
 function renderSlHtml(st){
-  if(!st)return '준비됨';
+  if(!st)return t('ws.ready');
   const pct=st.ctx_pct||0,bw=6,filled=Math.min(bw,Math.floor(pct*bw/100)),empty=bw-filled;
   const bc=pct>=75?'c-red':pct>=50?'c-yellow':'c-green';
   const bar=`<span class="${bc}" style="letter-spacing:-1px">${'▓'.repeat(filled)}${'░'.repeat(empty)}</span>`;
@@ -158,7 +171,7 @@ function renderSlHtml(st){
     ctxTok>0?`<span class="c-magenta" title="out: ${outTok.toLocaleString()}">${ctxTok.toLocaleString()} tok</span>`:null,
     st.cost_usd?`<span class="c-gray">$${st.cost_usd.toFixed(4)}</span>`:null,
   ].filter(Boolean).join(sep);
-  return parts||'준비됨';
+  return parts||t('ws.ready');
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────────
@@ -192,12 +205,116 @@ function selectCmd(sid,cmd){
 }
 function closeDropdown(sid){const dd=document.getElementById('dd-'+sid);if(dd)dd.innerHTML='';}
 
+// ── 사이드바 Usage 위젯 ─────────────────────────────────────────────────────────
+const USAGE_PLANS = { '5': 5.0, '10': 10.0, '20': 20.0 };
+let _usageBudget = 5.0;
+
+function onUsagePlanChange(val){
+  _usageBudget = USAGE_PLANS[val] || 5.0;
+  try{ localStorage.setItem('ccpilot_usage_plan', val); }catch(e){}
+  updateSidebarUsage();
+}
+
+function _restoreUsagePlan(){
+  try{
+    const v = localStorage.getItem('ccpilot_usage_plan');
+    if(v && USAGE_PLANS[v]){
+      _usageBudget = USAGE_PLANS[v];
+      const sel = document.getElementById('usage-plan-sel');
+      if(sel) sel.value = v;
+    }
+  }catch(e){}
+}
+
+function updateSidebarUsage(){
+  let totalCost = 0, totalTok = 0;
+  for(const s of Object.values(sessions)){
+    if(s.status?.cost_usd) totalCost += s.status.cost_usd;
+    if(s.status?.total_output_tokens) totalTok += s.status.total_output_tokens;
+  }
+  const pct = Math.min(100, (totalCost / _usageBudget) * 100);
+  const remaining = Math.max(0, _usageBudget - totalCost);
+
+  const bar = document.getElementById('usage-bar');
+  const detail = document.getElementById('usage-detail');
+  if(!bar || !detail) return;
+
+  bar.style.width = pct.toFixed(1) + '%';
+  bar.className = 'usage-bar' + (pct >= 90 ? ' danger' : pct >= 60 ? ' warn' : '');
+
+  const tokStr = totalTok > 0 ? ` · ${(totalTok/1000).toFixed(1)}k tok` : '';
+  detail.textContent = `$${totalCost.toFixed(4)} / $${_usageBudget.toFixed(0)} · $${remaining.toFixed(4)} ${t('usage.remaining')}${tokStr}`;
+}
+
+// ── 휴지통 ─────────────────────────────────────────────────────────────────────
+const _trash = []; // { id, title, phase, model, cwd, projectId, lastResponse, chatLog }
+
+function _trashAdd(sid){
+  const s = sessions[sid];
+  if(!s) return;
+  _trash.unshift({
+    id: sid,
+    title: document.getElementById('title-'+sid)?.textContent?.trim() || sid,
+    phase: s.phase,
+    model: s.status?.model || '',
+    cwd: s.cwd || '',
+    projectId: s.projectId || null,
+    lastResponse: s.lastResponse || '',
+    chatLog: s.chatLog ? [...s.chatLog] : [],
+  });
+  if(_trash.length > 20) _trash.pop();
+  renderTrash();
+}
+
+function renderTrash(){
+  const wrap = document.getElementById('sidebar-trash-wrap');
+  const list = document.getElementById('trash-list');
+  if(!wrap || !list) return;
+  if(!_trash.length){ wrap.style.display='none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = _trash.map((tItem,i)=>`
+    <div class="trash-item">
+      <span class="trash-item-name" title="${esc(tItem.cwd)}">${esc(tItem.title)}</span>
+      <button class="trash-item-restore" onclick="restoreFromTrash(${i})">${t('ws.restore')}</button>
+    </div>`).join('');
+}
+
+function restoreFromTrash(i){
+  const t = _trash[i];
+  if(!t) return;
+  _trash.splice(i,1);
+  // 카드 복원: 세션을 새로 만들어서 같은 title/cwd/phase로 생성
+  fetch('/api/session', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model: t.model||'',
+      title: t.title,
+      phase: t.phase||'backlog',
+      cwd: t.cwd||'',
+      project_id: t.projectId||undefined,
+    })
+  }).then(r=>r.json()).then(j=>{
+    if(j.error){ renderTrash(); return; }
+    mountCard(j.session_id, t.title, t.phase||'backlog', t.model||'', j.slash_commands||[], t.projectId||null, j.cwd||t.cwd||'');
+    // chatLog 복원
+    const s = sessions[j.session_id];
+    if(s && t.chatLog?.length) s.chatLog = t.chatLog;
+    if(s && t.lastResponse) s.lastResponse = t.lastResponse;
+    renderTrash();
+  }).catch(()=>{ renderTrash(); });
+}
+
+function clearTrash(){
+  _trash.length = 0;
+  renderTrash();
+}
+
 // ── 세션 자동저장 & 복원 ───────────────────────────────────────────────────────
 const LS_KEY='cdl_ui_state';
 function saveUIState(){
   try{
     const model=document.getElementById('home-model-sel')?.value||'';
-    localStorage.setItem(LS_KEY,JSON.stringify({model,activeProject:_activeProjectId}));
+    localStorage.setItem(LS_KEY,JSON.stringify({model,activeProject:AppState.activeProjectId}));
   }catch(e){}
 }
 function restoreUIState(){
@@ -209,7 +326,7 @@ function restoreUIState(){
         const sel=document.getElementById(id);if(sel)sel.value=state.model;
       });
     }
-    if(state.activeProject) _activeProjectId=state.activeProject;
+    if(state.activeProject) AppState.activeProjectId=state.activeProject;
   }catch(e){}
 }
 // 모델 선택 동기화: 어느 셀렉터 변경 시 나머지 동기화
@@ -238,15 +355,48 @@ async function restoreSessions(){
         // Done 세션: WebSocket 연결 없이 완료 기록만 표시
         mountDoneCard(s.session_id,s.title,s.model,s.project_id||null,s.last_response||'');
       } else {
-        mountCard(s.session_id,s.title,s.phase,s.model,s.slash_commands||[],s.project_id||null,s.cwd||'');
-        // 이전 작업내용 요약 컨텍스트 전달
+        // 이전 작업내용 요약 컨텍스트를 mountCard(→connectWS) 전에 먼저 세팅
         if(s.resume_context){
           _pendingInitPrompts[s.session_id]=s.resume_context;
         }
+        mountCard(s.session_id,s.title,s.phase,s.model,s.slash_commands||[],s.project_id||null,s.cwd||'');
       }
     }
   }catch(e){}
 }
+
+// ── 커스텀 Confirm 모달 ────────────────────────────────────────────────────────
+let _confirmResolve = null;
+function showConfirm(msg, {icon='⚠', okText, cancelText, safe=false}={}){
+  // cancelText가 undefined일 때만 기본값 적용 (''는 "숨김" 의미)
+  if(okText == null) okText = t('confirm.ok');
+  if(cancelText == null) cancelText = t('confirm.cancel');
+  return new Promise(resolve=>{
+    _confirmResolve = resolve;
+    document.getElementById('confirm-msg').textContent = msg;
+    document.getElementById('confirm-icon').textContent = icon;
+    const okBtn = document.getElementById('confirm-ok-btn');
+    okBtn.textContent = okText;
+    okBtn.className = 'btn-primary confirm-ok-btn' + (safe?' safe':'');
+    const cancelBtn = document.getElementById('confirm-cancel-btn');
+    cancelBtn.textContent = cancelText;
+    // cancelText가 빈 문자열이면 cancel 버튼 숨김
+    cancelBtn.style.display = cancelText ? '' : 'none';
+    document.getElementById('confirm-overlay').classList.add('open');
+  });
+}
+function _confirmClose(result){
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if(_confirmResolve){ _confirmResolve(result); _confirmResolve=null; }
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('confirm-ok-btn')?.addEventListener('click',()=>_confirmClose(true));
+  document.getElementById('confirm-cancel-btn')?.addEventListener('click',()=>_confirmClose(false));
+  document.getElementById('confirm-overlay')?.addEventListener('click',e=>{
+    if(e.target===e.currentTarget) _confirmClose(false);
+  });
+  _applyI18n();
+});
 
 // ── 테마 ───────────────────────────────────────────────────────────────────────
 function toggleTheme(){
@@ -262,3 +412,8 @@ function toggleTheme(){
     }
   }catch(e){}
 })();
+
+// ── 언어 토글 ────────────────────────────────────────────────────────────────
+function toggleLang(){
+  setLang(_lang === 'en' ? 'ko' : 'en');
+}

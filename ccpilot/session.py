@@ -4,11 +4,13 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
 
-from ccpilot.utils import find_claude, clean_env
+from ccpilot.utils import find_claude, clean_env, no_window_kwargs
+from ccpilot.types import EventType
 
 # ── 단일 세션 ─────────────────────────────────────────────────────────────────
 
@@ -23,7 +25,9 @@ class Session:
         self._proc: subprocess.Popen | None = None
         self._publish_fn = None
         self._session_id: str | None = None
-        self._auto_compacting = False
+        self._is_auto_compacting = False
+        self._pending_resume: str = ""   # compact 후 히든 재개 메시지
+        self._is_hidden_responded = threading.Event()   # _send_hidden 재시도 취소 플래그
         self.project_id: str | None = None
         self.last_response: str = ""
 
@@ -39,7 +43,23 @@ class Session:
             "ctx_pct":             0,
             "cost_usd":            0.0,
             "thinking":            False,
+            "waiting_for_reset":   False,
+            "reset_time":          "",
         }
+
+    def _extract_reset_time(self, err_text: str) -> str | None:
+        import re
+        m = re.search(r'reset at\s+(.+?)(?:\.|$)', err_text, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        return None
+
+    def _enter_wait_mode(self, reset_time: str | None):
+        self.status["waiting_for_reset"] = True
+        self.status["reset_time"] = reset_time or ""
+        self.status["thinking"] = False
+        if self._publish_fn:
+            self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
 
     @staticmethod
     def _get_git_branch(cwd: str) -> str:
@@ -52,10 +72,17 @@ class Session:
         except Exception:
             return ""
 
-    def send(self, user_text: str, is_slash: bool = False):
+    def send(self, user_text: str):
+        # 대기 모드 자동 해제
+        if self.status.get("waiting_for_reset"):
+            self.status["waiting_for_reset"] = False
+            self.status["reset_time"] = ""
+            if self._publish_fn:
+                self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
+        
         base = find_claude()
         if base is None:
-            self._publish_fn(self.id, {"type": "error", "message": "claude를 찾을 수 없습니다."})
+            self._publish_fn(self.id, {"type": EventType.ERROR, "message": "claude를 찾을 수 없습니다."})
             return
 
         cmd = base + [
@@ -69,13 +96,10 @@ class Session:
         if self._session_id:
             cmd += ["--resume", self._session_id]
 
-        if is_slash:
-            cmd += [user_text]
-        else:
-            cmd += [user_text]
+        cmd += [user_text]
 
         self.status["thinking"] = True
-        self._publish_fn(self.id, {"type": "status", "status": self.status})
+        self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
 
         try:
             proc = subprocess.Popen(
@@ -84,9 +108,10 @@ class Session:
                 stderr=subprocess.PIPE,
                 env=clean_env(),
                 cwd=self.cwd,
+                **no_window_kwargs(),
             )
         except Exception as e:
-            self._publish_fn(self.id, {"type": "error", "message": str(e)})
+            self._publish_fn(self.id, {"type": EventType.ERROR, "message": str(e)})
             return
 
         with self._lock:
@@ -115,10 +140,10 @@ class Session:
                 if t == "system" and ev.get("subtype") == "init":
                     self._session_id = ev.get("session_id")
                     self.status["model"] = ev.get("model", self.status["model"])
-                    self._publish_fn(self.id, {"type": "status", "status": self.status})
+                    self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
                     slash_cmds = ev.get("slash_commands", [])
                     if slash_cmds:
-                        self._publish_fn(self.id, {"type": "slash_commands", "commands": slash_cmds})
+                        self._publish_fn(self.id, {"type": EventType.SLASH_COMMANDS, "commands": slash_cmds})
 
                 elif t == "assistant":
                     # assistant 이벤트의 usage로 실시간 토큰 업데이트 (thinking 중에도 표시)
@@ -133,16 +158,16 @@ class Session:
                             self.status["total_cache_tokens"] = cc + cr
                             self.status["ctx_tokens"] = ctx_used
                             self.status["ctx_pct"] = min(100, round(ctx_used / self.status["ctx_max"] * 100))
-                            self._publish_fn(self.id, {"type": "status", "status": self.status})
+                            self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
                     for block in (ev.get("message") or {}).get("content", []):
                         bt = block.get("type")
                         if bt == "text":
                             chunk = block["text"]
                             text_buf += chunk
-                            self._publish_fn(self.id, {"type": "output", "data": chunk})
+                            self._publish_fn(self.id, {"type": EventType.OUTPUT, "data": chunk})
                         elif bt == "thinking":
                             self._publish_fn(self.id, {
-                                "type": "thinking",
+                                "type": EventType.THINKING,
                                 "data": block.get("thinking", ""),
                             })
                         elif bt == "tool_use":
@@ -159,7 +184,7 @@ class Session:
                                     if isinstance(v, str) and v:
                                         summary = v; break
                             self._publish_fn(self.id, {
-                                "type": "tool_use",
+                                "type": EventType.TOOL_USE,
                                 "name": name,
                                 "summary": summary,
                             })
@@ -171,25 +196,31 @@ class Session:
                         self._update_from_result(usage, model_usage, ev.get("total_cost_usd", 0.0))
                     result_text = ev.get("result", "")
                     if result_text and not text_buf:
-                        self._publish_fn(self.id, {"type": "output", "data": result_text})
+                        self._publish_fn(self.id, {"type": EventType.OUTPUT, "data": result_text})
                     # 마지막 응답 저장 (세션 재시작 시 컨텍스트 제공용)
                     if text_buf:
                         self.last_response = text_buf
                     elif result_text:
                         self.last_response = result_text
+                    # _send_hidden 재시도 루프에 응답 수신 신호
+                    self._is_hidden_responded.set()
                     text_buf = ""
                     self.status["thinking"] = False
-                    # auto-compact 완료: 플래그 리셋 후 done 발행
-                    if self._auto_compacting:
-                        self._auto_compacting = False
+                    # auto-compact 완료: 재개 메시지 히든 전송
+                    if self._is_auto_compacting:
+                        self._is_auto_compacting = False
                         self._publish_fn(self.id, {
-                            "type": "sys_notice",
-                            "message": f"컨텍스트 압축 완료 (현재 {self.status['ctx_pct']}%)",
+                            "type": EventType.SYS_NOTICE,
+                            "message": f"컨텍스트 압축 완료 (현재 {self.status['ctx_pct']}%) — 작업 재개 중…",
                         })
-                        self._publish_fn(self.id, {"type": "status", "status": self.status})
-                        self._publish_fn(self.id, {"type": "done"})
-                    self._publish_fn(self.id, {"type": "status", "status": self.status})
-                    self._publish_fn(self.id, {"type": "done"})
+                        self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
+                        # 히든 재개 메시지 전송 (사용자 채팅에 표시 안 됨)
+                        resume_msg = self._pending_resume or "이전 작업을 이어서 계속 진행해주세요."
+                        self._pending_resume = ""
+                        threading.Thread(target=self._send_hidden, args=(resume_msg,), daemon=True).start()
+                        return  # done 이벤트는 재개 응답 후 발행
+                    self._publish_fn(self.id, {"type": EventType.STATUS, "status": self.status})
+                    self._publish_fn(self.id, {"type": EventType.DONE})
 
         except Exception:
             pass
@@ -197,7 +228,33 @@ class Session:
         try:
             err = proc.stderr.read().decode(errors="replace").strip()
             if err:
-                self._publish_fn(self.id, {"type": "error", "message": err})
+                # context limit 에러 감지 → auto-compact 실행
+                _ctx_keywords = ("context", "too long", "token limit", "maximum context", "context window")
+                _usage_limit_keywords = (
+                    "usage limit reached",
+                    "rate limit reached",
+                    "rate_limit_error",
+                    "would exceed your account",
+                    "try again later",
+                )
+                if not self._is_auto_compacting and any(k in err.lower() for k in _ctx_keywords):
+                    self._is_auto_compacting = True
+                    self._pending_resume = self.last_response or "이전 작업을 이어서 계속 진행해주세요."
+                    self._publish_fn(self.id, {
+                        "type": EventType.SYS_NOTICE,
+                        "message": f"컨텍스트 한도 도달 → /compact 자동 실행 중…",
+                    })
+                    threading.Thread(target=self.send, args=("/compact",), daemon=True).start()
+                elif any(k in err.lower() for k in _usage_limit_keywords):
+                    reset_time = self._extract_reset_time(err)
+                    self._publish_fn(self.id, {
+                        "type": EventType.USAGE_LIMIT,
+                        "message": err,
+                        "reset_time": reset_time,
+                    })
+                    self._enter_wait_mode(reset_time)
+                else:
+                    self._publish_fn(self.id, {"type": EventType.ERROR, "message": err})
         except Exception:
             pass
 
@@ -227,14 +284,25 @@ class Session:
         self.status["ctx_tokens"] = ctx_used
         self.status["ctx_pct"]    = min(100, round(ctx_used / ctx_max * 100)) if ctx_max > 0 else 0
 
-        # ── Auto-compact: 90% 이상이면 자동으로 /compact 실행 ──────────────────
-        if self.status["ctx_pct"] >= 90 and not self._auto_compacting:
-            self._auto_compacting = True
-            self._publish_fn(self.id, {
-                "type": "sys_notice",
-                "message": f"컨텍스트 {self.status['ctx_pct']}% 도달 → /compact 자동 실행 중…",
-            })
-            threading.Thread(target=self.send, args=("/compact",), daemon=True).start()
+        # ctx_pct 는 추정치로 표시만 — 자동 compact는 에러 감지 시 실행
+
+    def _send_hidden(self, text: str):
+        """사용자 채팅에 표시 없이 Claude에 메시지 전송 (compact 후 재개용).
+        응답이 올 때까지 30초 주기로 재시도. 응답 수신 시 자동 취소."""
+        self._is_hidden_responded.clear()
+        attempt = 0
+        while not self._is_hidden_responded.is_set():
+            attempt += 1
+            self._publish_fn(self.id, {"type": EventType.STATUS, "status": {**self.status, "thinking": True}})
+            self.send(text)
+            if self._is_hidden_responded.is_set():
+                break
+            # 응답 없으면 30초 대기 후 재시도
+            self._is_hidden_responded.wait(30.0)
+            if self._is_hidden_responded.is_set():
+                break
+            if attempt >= 5:   # 최대 5회(2분30초) 후 중단
+                break
 
     def clear_context(self):
         """Claude context를 초기화 (세션 ID 리셋 -> 다음 메시지에서 새 대화 시작)"""
@@ -250,7 +318,7 @@ class Session:
         """히든 ping 전송. 응답 받으면 connected 발행. UI에 아무것도 표시 안 함."""
         base = find_claude()
         if base is None:
-            mgr.publish(self.id, {"type": "error", "message": "claude를 찾을 수 없습니다."})
+            mgr.publish(self.id, {"type": EventType.ERROR, "message": "claude를 찾을 수 없습니다."})
             return
 
         cmd = base + [
@@ -271,9 +339,10 @@ class Session:
                 stderr=subprocess.PIPE,
                 env=clean_env(),
                 cwd=self.cwd,
+                **no_window_kwargs(),
             )
         except Exception as e:
-            mgr.publish(self.id, {"type": "error", "message": str(e)})
+            mgr.publish(self.id, {"type": EventType.ERROR, "message": str(e)})
             return
 
         with self._lock:
@@ -295,11 +364,15 @@ class Session:
                 t = ev.get("type", "")
 
                 if t == "system" and ev.get("subtype") == "init":
-                    self._session_id = ev.get("session_id")
+                    # heartbeat는 새 세션 ID를 _session_id에 쓰지 않음
+                    # (복원된 claude_sid를 보존해야 resume 가능)
+                    new_sid = ev.get("session_id")
+                    if not self._session_id:
+                        self._session_id = new_sid
                     self.status["model"] = ev.get("model", self.status["model"])
                     slash_cmds = ev.get("slash_commands", [])
                     if slash_cmds:
-                        mgr.publish(self.id, {"type": "slash_commands", "commands": slash_cmds})
+                        mgr.publish(self.id, {"type": EventType.SLASH_COMMANDS, "commands": slash_cmds})
 
                 elif t == "result":
                     usage       = ev.get("usage") or {}
@@ -308,14 +381,33 @@ class Session:
                         self._update_from_result(usage, model_usage, ev.get("total_cost_usd", 0.0))
                     # heartbeat 완료 -> connected 발행 (UI에 응답 내용은 표시 안 함)
                     self.status["thinking"] = False
-                    mgr.publish(self.id, {"type": "connected", "status": self.status})
+                    mgr.publish(self.id, {"type": EventType.CONNECTED, "status": self.status})
                     break  # result 받으면 종료
 
         except Exception:
             pass
 
         try:
-            proc.stderr.read()
+            err = proc.stderr.read().decode(errors="replace").strip()
+            if err:
+                _usage_limit_keywords = (
+                    "usage limit reached",
+                    "rate limit reached",
+                    "rate_limit_error",
+                    "would exceed your account",
+                    "try again later",
+                )
+                if any(k in err.lower() for k in _usage_limit_keywords):
+                    reset_time = self._extract_reset_time(err)
+                    mgr.publish(self.id, {
+                        "type": EventType.USAGE_LIMIT,
+                        "message": err,
+                        "reset_time": reset_time,
+                    })
+                    self.status["waiting_for_reset"] = True
+                    self.status["reset_time"] = reset_time or ""
+                    self.status["thinking"] = False
+                    mgr.publish(self.id, {"type": EventType.STATUS, "status": self.status})
         except Exception:
             pass
 
@@ -327,17 +419,34 @@ class Session:
 
     def stop(self):
         with self._lock:
-            if self._proc:
+            proc = self._proc
+        if proc:
+            try:
+                if sys.platform == "win32":
+                    # Windows: 프로세스 트리 전체 종료 (node.js 자식 포함)
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True, timeout=5,
+                    )
+                else:
+                    import signal as _sig, os as _os
+                    try:
+                        _os.killpg(_os.getpgid(proc.pid), _sig.SIGTERM)
+                    except Exception:
+                        proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
                 try:
-                    self._proc.terminate()
+                    proc.kill()
                 except Exception:
                     pass
 
 
 # ── 세션 매니저 ───────────────────────────────────────────────────────────────
 
+from ccpilot.db import load_sessions, save_sessions
+
 class SessionManager:
-    SAVE_FILE = Path(__file__).parent.parent / "sessions.json"
 
     def __init__(self):
         self._sessions: dict[str, Session] = {}
@@ -363,22 +472,38 @@ class SessionManager:
             "last_response": getattr(sess, "last_response", ""),
         }
 
+    def stop_all(self):
+        """모든 활성 claude subprocess를 병렬로 종료 (앱 종료 시 호출)."""
+        with self._lock:
+            sessions = list(self._sessions.values())
+        if not sessions:
+            return
+        threads = []
+        for sess in sessions:
+            def _stop(s=sess):
+                try:
+                    s.stop()
+                except Exception:
+                    pass
+            th = threading.Thread(target=_stop, daemon=True)
+            th.start()
+            threads.append(th)
+        for th in threads:
+            th.join(timeout=5)
+
     def save(self):
-        """현재 세션 목록을 sessions.json에 저장."""
+        """현재 세션 목록을 db에 저장."""
         with self._lock:
             data = [self._session_to_dict(s) for s in self._sessions.values()]
         try:
-            self.SAVE_FILE.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            save_sessions(data)
         except Exception:
             pass
 
     def load(self) -> list[dict]:
-        """sessions.json에서 세션 메타 목록 반환 (Session 객체는 생성하지 않음)."""
+        """db에서 세션 메타 목록 반환 (Session 객체는 생성하지 않음)."""
         try:
-            if self.SAVE_FILE.exists():
-                return json.loads(self.SAVE_FILE.read_text(encoding="utf-8"))
+            return load_sessions()
         except Exception:
             pass
         return []
@@ -478,22 +603,22 @@ class SessionManager:
         sess = self.get(sid)
         if sess:
             sess.clear_context()
-            self.publish(sid, {"type": "cleared"})
-            self.publish(sid, {"type": "status", "status": sess.status})
+            self.publish(sid, {"type": EventType.CLEARED})
+            self.publish(sid, {"type": EventType.STATUS, "status": sess.status})
             self.save()
 
     def move_phase(self, sid: str, phase: str):
         sess = self.get(sid)
         if sess:
             sess.phase = phase
-            self.publish(sid, {"type": "phase", "phase": phase})
+            self.publish(sid, {"type": EventType.PHASE, "phase": phase})
             self.save()
 
     def rename(self, sid: str, title: str):
         sess = self.get(sid)
         if sess:
             sess.title = title
-            self.publish(sid, {"type": "renamed", "title": title})
+            self.publish(sid, {"type": EventType.RENAMED, "title": title})
             self.save()
 
 

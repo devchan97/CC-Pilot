@@ -1,0 +1,16 @@
+"""CCPilot -- Constants and Enums."""
+
+class EventType:
+    OUTPUT = "output"
+    STATUS = "status"
+    ERROR = "error"
+    SYS_NOTICE = "sys_notice"
+    USAGE_LIMIT = "usage_limit"
+    SLASH_COMMANDS = "slash_commands"
+    DONE = "done"
+    CLEARED = "cleared"
+    PHASE = "phase"
+    RENAMED = "renamed"
+    CONNECTED = "connected"
+    THINKING = "thinking"
+    TOOL_USE = "tool_use"

@@ -1,6 +1,37 @@
 // ── 홈 화면 ───────────────────────────────────────────────────────────────────
-let _homeFiles = [];
-let _homeCwd   = '';
+
+function setHomeMode(mode){
+  AppState.homeMode = mode;
+  document.querySelectorAll('.home-mode-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  // placeholder/sub 텍스트를 모드에 맞게 갱신
+  const ta = document.getElementById('home-textarea');
+  if(ta) ta.placeholder = t('home.mode_placeholder.'+mode) || ta.placeholder;
+  // 캐러셀은 planning 모드에서만 표시
+  const carousel = document.getElementById('carousel-wrap')?.closest('.home-carousel');
+  if(carousel) carousel.style.display = mode === 'planning' ? '' : 'none';
+}
+
+function getHomeMode(){ return AppState.homeMode; }
+
+// Claude Code가 지원하는 파일 확장자
+const CLAUDE_SUPPORTED_EXTS = new Set([
+  'txt','md','markdown','rst','csv','tsv','log',
+  'js','ts','jsx','tsx','py','rb','go','rs','java',
+  'c','cpp','h','hpp','cs','php','swift','kt','scala',
+  'r','m','sh','bash','zsh','fish','ps1','bat','cmd',
+  'json','yaml','yml','toml','ini','env','conf','config',
+  'xml','html','htm','css','scss','sass','less',
+  'tex','org','adoc','sql','graphql','proto',
+  'vue','svelte','astro','prisma',
+  // 이미지
+  'png','jpg','jpeg','gif','webp','bmp','svg',
+  // 확장자 없는 파일 (Dockerfile 등)은 별도 처리
+]);
+
+// 이미지 확장자 구분용
+const _IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','bmp','svg']);
 
 // 각 키의 마지막 사용 인덱스 추적 (같은 variant 반복 방지)
 const _lastVariantIdx = {};
@@ -9,7 +40,9 @@ function setHomeTemplate(key){
   const ta = document.getElementById('home-textarea');
   const variants = HOME_VARIANTS[key];
   if(!variants || !variants.length){
-    ta.value = HOME_TEMPLATES[key] || '';
+    const lang = typeof getLang === 'function' ? getLang() : 'en';
+    const tmpl = HOME_TEMPLATES[key];
+    ta.value = (tmpl ? (tmpl['text_'+lang] || tmpl.text_en || (typeof tmpl==='string' ? tmpl : '')) : '') || '';
     ta.focus();
     return;
   }
@@ -19,13 +52,15 @@ function setHomeTemplate(key){
   while(variants.length > 1 && idx === _lastVariantIdx[key]);
   _lastVariantIdx[key] = idx;
 
-  ta.value = variants[idx].text;
+  const lang = typeof getLang === 'function' ? getLang() : 'en';
+  ta.value = variants[idx]['text_'+lang] || variants[idx].text_en || variants[idx].text || '';
   ta.focus();
 
   // 버튼 flash 효과
   const tpl = HOME_BUTTONS_ORDER.find(t=>t.key===key);
+  const tplLabel = tpl ? (typeof window.t==='function' ? window.t('home.btn.'+tpl.key) : (tpl.label||tpl.key)) : '';
   const btn = [...document.querySelectorAll('.home-quick-btn')]
-    .find(b => tpl && b.textContent.trim() === (tpl.icon+' '+tpl.label).trim());
+    .find(b => tpl && b.textContent.trim() === tplLabel.trim());
   if(btn){
     btn.classList.add('active');
     setTimeout(()=>btn.classList.remove('active'), 400);
@@ -73,8 +108,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // 셔플된 순서로 퀵버튼 렌더
   const track = document.getElementById('carousel-track');
   if(track){
-    track.innerHTML = HOME_BUTTONS_ORDER.map(t=>
-      `<button class="home-quick-btn" onclick="setHomeTemplate('${t.key}')">${t.icon} ${t.label}</button>`
+    track.innerHTML = HOME_BUTTONS_ORDER.map(tpl=>
+      `<button class="home-quick-btn" onclick="setHomeTemplate('${tpl.key}')">${typeof window.t==='function'?window.t('home.btn.'+tpl.key):(tpl.label||tpl.key)}</button>`
     ).join('');
   }
 
@@ -93,21 +128,47 @@ document.addEventListener('DOMContentLoaded', ()=>{
 });
 
 function onHomeFileAttach(input){
-  for(const f of input.files){
-    if(!_homeFiles.find(x=>x.name===f.name)) _homeFiles.push(f);
+  const files = [...input.files];
+  let pending = 0;
+  for(const f of files){
+    const ext = f.name.split('.').pop().toLowerCase();
+    if(!CLAUDE_SUPPORTED_EXTS.has(ext)){
+      alert(t('err.file_type') + '.' + ext + '\n' + t('err.file_type_detail') + 'txt, md, js, ts, py, json, yaml…');
+      continue;
+    }
+    if(AppState.homeFiles.find(x=>x.name===f.name)) continue;
+    if(_IMAGE_EXTS.has(ext)){
+      // 이미지: FileReader로 base64 변환
+      pending++;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const dataUrl = ev.target.result; // data:<mime>;base64,<b64>
+        const b64 = dataUrl.split(',')[1];
+        const mimeType = f.type || ('image/'+ext);
+        AppState.homeFiles.push({
+          name: f.name, _isImage: true, _b64: b64, _mimeType: mimeType,
+          text: async ()=> '',
+        });
+        pending--;
+        if(pending === 0) renderHomeAttachments();
+      };
+      reader.readAsDataURL(f);
+    } else {
+      AppState.homeFiles.push(f);
+    }
   }
-  renderHomeAttachments();
+  if(pending === 0) renderHomeAttachments();
   input.value = '';
 }
 
 function setHomeCwd(path){
-  _homeCwd = (path||'').trim();
+  AppState.homeCwd = (path||'').trim();
   const badge = document.getElementById('home-cwd-badge');
   const clearBtn = document.getElementById('home-cwd-clear-btn');
-  if(_homeCwd){
-    const label = _homeCwd.replace(/\\/g,'/').split('/').filter(Boolean).pop() || _homeCwd;
+  if(AppState.homeCwd){
+    const label = AppState.homeCwd.replace(/\\/g,'/').split('/').filter(Boolean).pop() || AppState.homeCwd;
     badge.textContent = '📁 ' + label;
-    badge.title = _homeCwd;
+    badge.title = AppState.homeCwd;
     badge.style.display = '';
     if(clearBtn) clearBtn.style.display = '';
   } else {
@@ -119,77 +180,132 @@ function clearHomeCwd(){
   setHomeCwd('');
 }
 
+// 범용 OS 네이티브 폴더 선택 (inputId: 결과를 채울 input 요소 id, 없으면 홈 cwd로 설정)
+async function openFolderDialogFor(inputId){
+  try{
+    const r = await fetch('/api/folder-dialog');
+    const data = await r.json();
+    if(!data.path) return;
+    if(inputId){
+      const el = document.getElementById(inputId);
+      if(el) el.value = data.path;
+    } else {
+      setHomeCwd(data.path);
+    }
+    if(typeof rexLoad === 'function') rexLoad(data.path);
+  }catch(e){ console.error('folder-dialog error', e); }
+}
+
+// 홈 화면용 폴더 선택 (하위호환)
+async function openFolderDialog(){
+  return openFolderDialogFor(null);
+}
+
 function renderHomeAttachments(){
   const el = document.getElementById('home-attachments');
-  if(!_homeFiles.length){ el.innerHTML=''; return; }
-  el.innerHTML = _homeFiles.map((f,i)=>`
-    <div class="home-attach-chip">
+  if(!AppState.homeFiles.length){ el.innerHTML=''; return; }
+  el.innerHTML = AppState.homeFiles.map((f,i)=>{
+    if(f._isImage && f._b64){
+      return `<div class="home-attach-chip home-attach-img-chip">
+        <img class="home-attach-thumb" src="data:${f._mimeType};base64,${f._b64}" alt="${esc(f.name)}">
+        <span class="home-attach-img-name">${esc(f.name)}</span>
+        <button onclick="removeHomeFile(${i})">✕</button>
+      </div>`;
+    }
+    return `<div class="home-attach-chip">
       <span>📄 ${esc(f.name)}</span>
       <button onclick="removeHomeFile(${i})">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function removeHomeFile(i){
-  _homeFiles.splice(i,1);
+  AppState.homeFiles.splice(i,1);
   renderHomeAttachments();
 }
 
 async function runHomeAnalysis(){
   const text = document.getElementById('home-textarea').value.trim();
-  const hasFile = _homeFiles.length > 0;
-  if(!text && !hasFile){ alert('텍스트를 입력하거나 파일을 첨부하세요.'); return; }
+  const hasFile = AppState.homeFiles.length > 0;
+  if(!text && !hasFile){ alert(t('err.enter_text_or_file')); return; }
 
   const model = getSelectedModel();
+  const lang  = typeof getLang === 'function' ? getLang() : 'en';
+  const mode  = getHomeMode();
+
+  // refactoring / enhancement는 기존 코드베이스 대상이므로 작업 폴더 필수
+  if(mode !== 'planning' && !AppState.homeCwd){
+    await showConfirm(t('err.need_folder'), {icon:'📁', okText:'OK', cancelText:'', safe:true});
+    return;
+  }
   const btn = document.getElementById('home-send-btn');
   btn.disabled = true;
   showLoading(true);
 
   try{
     let result;
-    if(hasFile && !text){
-      // 파일만 있으면 첫 파일을 텍스트로 읽어 전송
+    // 텍스트 파일 vs 이미지 파일 분리
+    const textFiles  = AppState.homeFiles.filter(f => !f._isImage);
+    const imageFiles = AppState.homeFiles.filter(f => f._isImage);
+
+    // 이미지는 design_files 페이로드로, 텍스트는 본문에 합산
+    const designFiles = imageFiles.map(f=>({
+      name: f.name, isImage: true, mimeType: f._mimeType, data: f._b64
+    }));
+
+    if(textFiles.length > 0 && !text){
+      // 텍스트 파일만 있고 직접 입력이 없으면 첫 파일을 multipart로 전송
       const fd = new FormData();
-      fd.append('file', _homeFiles[0]);
-      fd.append('cwd', _homeCwd);
+      // _rexPath(서버 경로) 파일은 Blob 형태로 변환
+      const firstFile = textFiles[0];
+      if(firstFile._rexPath){
+        fd.append('file', new Blob([firstFile._text||''], {type:'text/plain'}), firstFile.name);
+      } else {
+        fd.append('file', firstFile);
+      }
+      fd.append('cwd', AppState.homeCwd);
       fd.append('model', model);
+      fd.append('lang', lang);
+      fd.append('mode', mode);
       const r = await fetch('/api/plan/file', {method:'POST', body:fd});
       result = await r.json();
     } else {
       let combined = text;
-      // 텍스트 + 파일 내용 합치기
-      for(const f of _homeFiles){
+      // 텍스트 파일 내용 합치기
+      for(const f of textFiles){
         const content = await f.text();
-        combined += '\n\n---\n파일: '+f.name+'\n'+content;
+        combined += '\n\n---\nFile: '+f.name+'\n'+content;
       }
       const r = await fetch('/api/plan/text', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text: combined, cwd: _homeCwd, model})
+        body: JSON.stringify({text: combined, cwd: AppState.homeCwd, model, lang, mode, design_files: designFiles})
       });
       result = await r.json();
     }
 
-    if(result.error){ alert('분석 오류: '+result.error); return; }
-    if(!result.agents||!result.agents.length){ alert('에이전트 제안이 없습니다. 내용을 더 구체적으로 작성해보세요.'); return; }
+    if(result.error){ alert(t('err.analysis')+result.error); return; }
+    if(!result.agents||!result.agents.length){ alert(t('err.no_agents')); return; }
 
     // 프로젝트명 추출: 첫 줄 또는 요약에서
     const defaultName = result.summary
       ? result.summary.slice(0,30).replace(/[^\w가-힣\s]/g,'').trim() || '새 프로젝트'
       : '새 프로젝트';
 
-    _spawnSummary = result.summary || '';
-    _spawnRootCwd = _homeCwd;
-    _spawnDefaultName = defaultName;
+    AppState.spawnSummary = result.summary || '';
+    AppState.spawnRootCwd = AppState.homeCwd;
+    AppState.spawnDefaultName = defaultName;
+    AppState.spawnPrereqs = result.prerequisites || [];
     showSpawnModal(result.agents, true);
 
   }catch(e){
-    alert('요청 실패: '+e);
+    alert(t('err.request_failed')+e);
   }finally{
     btn.disabled = false;
     showLoading(false);
   }
 }
 
-// textarea auto-resize
+// textarea auto-resize + Explorer 파일 드래그 앤 드롭
 document.addEventListener('DOMContentLoaded', ()=>{
   const ta = document.getElementById('home-textarea');
   ta?.addEventListener('input', function(){
@@ -199,4 +315,58 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ta?.addEventListener('keydown', e=>{
     if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); runHomeAnalysis(); }
   });
+
+  // Explorer rsidebar 파일 → home-input-box 드롭 첨부
+  const box = document.getElementById('home-input-box');
+  if(box){
+    box.addEventListener('dragover', e=>{
+      if(e.dataTransfer.types.includes('text/rex-path')){
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        box.classList.add('drag-over');
+      }
+    });
+    box.addEventListener('dragleave', e=>{
+      if(!box.contains(e.relatedTarget)) box.classList.remove('drag-over');
+    });
+    box.addEventListener('drop', async e=>{
+      const path = e.dataTransfer.getData('text/rex-path');
+      if(!path){ box.classList.remove('drag-over'); return; }
+      e.preventDefault();
+      box.classList.remove('drag-over');
+      // 확장자 검증
+      const fname = path.replace(/\\/g,'/').split('/').pop();
+      const ext = fname.split('.').pop().toLowerCase();
+      if(!CLAUDE_SUPPORTED_EXTS.has(ext)){
+        showConfirm(t('err.file_type') + '.' + ext, {icon:'⚠', okText:'OK', cancelText:'', safe:true});
+        return;
+      }
+      // 중복 방지
+      if(AppState.homeFiles.find(f=>f._rexPath===path)) return;
+      const isImage = _IMAGE_EXTS.has(ext);
+      try{
+        const r = await fetch('/api/explorer/read', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({path, as_image: isImage})
+        });
+        const data = await r.json();
+        if(data.error){ console.warn(t('err.file_read'), data.error); return; }
+        let fakeFile;
+        if(isImage){
+          // 이미지: base64 데이터로 fakeFile 구성
+          const mimeType = data.mime_type || ('image/'+ext);
+          fakeFile = {
+            name: fname, _rexPath: path, _isImage: true,
+            _b64: data.b64, _mimeType: mimeType,
+            text: async ()=> '',
+          };
+        } else {
+          fakeFile = { name: fname, _rexPath: path, _text: data.content,
+            text: async ()=> data.content };
+        }
+        AppState.homeFiles.push(fakeFile);
+        renderHomeAttachments();
+      }catch(err){ console.error('drop read error', err); }
+    });
+  }
 });
