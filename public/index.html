@@ -253,6 +253,16 @@
   <!-- 오른쪽 사이드바 탭 -->
   <button class="rsidebar-tab" id="rsidebar-tab" onclick="toggleRsidebar()" title="Explorer 열기">📁</button>
 
+  <!-- ── 홈 분석 로딩 오버레이 ── -->
+  <div class="overlay home-analyzing-overlay" id="home-analyzing-overlay">
+    <div class="home-analyzing-modal">
+      <div class="home-analyzing-spinner"></div>
+      <div class="home-analyzing-title" data-i18n="spawn.analyzing_title">Analyzing…</div>
+      <div class="home-analyzing-sub" data-i18n="spawn.analyze_loading">Claude is analyzing your project…</div>
+      <button class="btn-ghost home-analyzing-cancel" id="home-analyzing-cancel" data-i18n="spawn.analyzing_cancel">Cancel</button>
+    </div>
+  </div>
+
   <!-- ── 모달들 ── -->
 
   <!-- 커스텀 Confirm 모달 -->
@@ -351,9 +361,10 @@
       </div>
       <div id="spawn-prereq-wrap"></div>
       <div id="spawn-agent-list"></div>
+      <button class="spawn-add-agent-btn" onclick="spawnAddAgent()" data-i18n="spawn.add_agent">+ Add Agent</button>
       <div class="modal-btns">
         <button class="btn-ghost" onclick="closeSpawnModal()" data-i18n="modal.cancel">Cancel</button>
-        <button class="btn-primary" onclick="confirmSpawn()" data-i18n="spawn.approve">Approve &amp; Spawn</button>
+        <button class="btn-primary" id="spawn-confirm-btn" onclick="confirmSpawn()" data-i18n="spawn.approve">Approve &amp; Spawn</button>
       </div>
     </div>
   </div>

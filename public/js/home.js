@@ -224,6 +224,25 @@ function removeHomeFile(i){
   renderHomeAttachments();
 }
 
+// 홈 분석 요청 AbortController
+let _homeAnalysisAbort = null;
+
+function _showHomeAnalyzing(show){
+  const ov = document.getElementById('home-analyzing-overlay');
+  if(!ov) return;
+  ov.classList.toggle('open', show);
+}
+
+// 취소 버튼 핸들러 (DOMContentLoaded 이후 연결)
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('home-analyzing-cancel')?.addEventListener('click', ()=>{
+    if(_homeAnalysisAbort){ _homeAnalysisAbort.abort(); _homeAnalysisAbort = null; }
+    _showHomeAnalyzing(false);
+    const btn = document.getElementById('home-send-btn');
+    if(btn) btn.disabled = false;
+  });
+});
+
 async function runHomeAnalysis(){
   const text = document.getElementById('home-textarea').value.trim();
   const hasFile = AppState.homeFiles.length > 0;
@@ -240,7 +259,8 @@ async function runHomeAnalysis(){
   }
   const btn = document.getElementById('home-send-btn');
   btn.disabled = true;
-  showLoading(true);
+  _homeAnalysisAbort = new AbortController();
+  _showHomeAnalyzing(true);
 
   try{
     let result;
@@ -252,6 +272,8 @@ async function runHomeAnalysis(){
     const designFiles = imageFiles.map(f=>({
       name: f.name, isImage: true, mimeType: f._mimeType, data: f._b64
     }));
+
+    const signal = _homeAnalysisAbort.signal;
 
     if(textFiles.length > 0 && !text){
       // 텍스트 파일만 있고 직접 입력이 없으면 첫 파일을 multipart로 전송
@@ -267,7 +289,7 @@ async function runHomeAnalysis(){
       fd.append('model', model);
       fd.append('lang', lang);
       fd.append('mode', mode);
-      const r = await fetch('/api/plan/file', {method:'POST', body:fd});
+      const r = await fetch('/api/plan/file', {method:'POST', body:fd, signal});
       result = await r.json();
     } else {
       let combined = text;
@@ -278,7 +300,8 @@ async function runHomeAnalysis(){
       }
       const r = await fetch('/api/plan/text', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text: combined, cwd: AppState.homeCwd, model, lang, mode, design_files: designFiles})
+        body: JSON.stringify({text: combined, cwd: AppState.homeCwd, model, lang, mode, design_files: designFiles}),
+        signal
       });
       result = await r.json();
     }
@@ -298,10 +321,12 @@ async function runHomeAnalysis(){
     showSpawnModal(result.agents, true);
 
   }catch(e){
+    if(e.name === 'AbortError') return; // 취소 시 무시
     alert(t('err.request_failed')+e);
   }finally{
+    _homeAnalysisAbort = null;
     btn.disabled = false;
-    showLoading(false);
+    _showHomeAnalyzing(false);
   }
 }
 

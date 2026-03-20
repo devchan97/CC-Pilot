@@ -340,6 +340,50 @@ textarea::-webkit-scrollbar-thumb:hover,
 .confirm-modal .confirm-ok-btn.safe{background:var(--accent)}
 .confirm-modal .confirm-ok-btn.safe:hover:not(:disabled){background:var(--accent2)}
 
+/* ── Spawn: 에이전트 추가 버튼 ── */
+.spawn-add-agent-btn{
+  width:100%;margin:4px 0 10px;padding:7px;
+  border:1px dashed var(--border2);border-radius:8px;
+  background:transparent;color:var(--text-dim);font-size:11px;
+  cursor:pointer;transition:color .15s,border-color .15s,background .15s;
+}
+.spawn-add-agent-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--surface3)}
+
+/* ── Spawn: agent 제거 버튼 ── */
+.agent-proposal-remove{
+  background:transparent;border:none;color:var(--text-dim);
+  cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;
+  margin-left:auto;flex-shrink:0;
+  transition:color .12s,background .12s;
+}
+.agent-proposal-remove:hover{color:var(--red);background:var(--surface2)}
+
+/* ── Spawn: confirm 버튼 비활성화 ── */
+#spawn-confirm-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── 홈 분석 로딩 오버레이 ── */
+.home-analyzing-overlay{
+  z-index:9000;
+  background:rgba(0,0,0,.55);
+  backdrop-filter:blur(4px);
+}
+.home-analyzing-modal{
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:16px;padding:36px 40px;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  min-width:260px;max-width:360px;width:90vw;
+}
+.home-analyzing-spinner{
+  width:36px;height:36px;border-radius:50%;
+  border:3px solid var(--border2);
+  border-top-color:var(--accent);
+  animation:spin .75s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.home-analyzing-title{font-size:15px;font-weight:600;color:var(--text)}
+.home-analyzing-sub{font-size:12px;color:var(--text-dim);text-align:center;line-height:1.5}
+.home-analyzing-cancel{margin-top:4px;font-size:11px;padding:5px 18px}
+
 /* ── 모바일 ── */
 @media(max-width:640px){
   .sidebar{width:0}.sidebar.collapsed{width:0}

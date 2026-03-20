@@ -249,6 +249,85 @@ async function runPlanning(){
   finally{btn.disabled=false;showLoading(false);}
 }
 
+// agent 카드 HTML 생성 (인덱스 기반)
+function _agentCardHtml(ag, i, defaultModel){
+  return `
+    <div class="agent-proposal-item" id="ag-card-${i}">
+      <div class="agent-proposal-row">
+        <span class="agent-role-badge">${esc(ag.role||'agent')}</span>
+        <div class="agent-proposal-label">${t('spawn.agent_name')}</div>
+        <input class="agent-proposal-input" id="ag-title-${i}" value="${esc(ag.title||ag.role||'Agent')}" placeholder="${t('spawn.agent_name')}">
+        <div class="agent-proposal-label">${t('spawn.agent_path')}</div>
+        <input class="agent-proposal-input" id="ag-cwd-${i}" value="${esc(ag.cwd_suffix||'')}" placeholder="${t('spawn.agent_path')}">
+        <button class="agent-proposal-remove" onclick="spawnRemoveAgent(${i})" title="${t('spawn.remove_agent')}">✕</button>
+      </div>
+      <div class="agent-proposal-row">
+        <div class="agent-proposal-label" style="width:60px">${t('spawn.agent_model')}</div>
+        <select class="agent-proposal-select" id="ag-model-${i}">
+          <option value="sonnet"${defaultModel==='sonnet'||!defaultModel?' selected':''}>Sonnet 4.6</option>
+          <option value="opus"${defaultModel==='opus'?' selected':''}>Opus 4.6</option>
+          <option value="haiku"${defaultModel==='haiku'?' selected':''}>Haiku 4.5</option>
+        </select>
+      </div>
+      <div class="agent-proposal-row">
+        <div class="agent-proposal-label" style="width:60px">${t('spawn.agent_task')}</div>
+        <textarea class="agent-proposal-prompt" id="ag-prompt-${i}" rows="2">${esc(ag.init_prompt||'')}</textarea>
+      </div>
+    </div>`;
+}
+
+// _spawnAgents 배열에서 현재 입력값 동기화
+function _syncAgentInputs(){
+  _spawnAgents = _spawnAgents.map((ag, i)=>({
+    ...ag,
+    title: document.getElementById('ag-title-'+i)?.value ?? ag.title,
+    cwd_suffix: document.getElementById('ag-cwd-'+i)?.value ?? ag.cwd_suffix,
+    init_prompt: document.getElementById('ag-prompt-'+i)?.value ?? ag.init_prompt,
+    model: document.getElementById('ag-model-'+i)?.value ?? ag.model,
+  }));
+}
+
+// 에이전트 추가
+function spawnAddAgent(){
+  _syncAgentInputs();
+  _spawnAgents.push({
+    role: t('spawn.new_agent_role'),
+    title: t('spawn.new_agent_name'),
+    cwd_suffix: '',
+    init_prompt: '',
+  });
+  _reRenderAgentList();
+}
+
+// 에이전트 제거
+function spawnRemoveAgent(i){
+  _syncAgentInputs();
+  _spawnAgents.splice(i, 1);
+  _reRenderAgentList();
+}
+
+// agent 목록만 다시 렌더 (프로젝트 필드는 유지)
+function _reRenderAgentList(){
+  const defaultModel = getSelectedModel() || 'sonnet';
+  const agContainer = document.getElementById('spawn-agent-list');
+  // projField는 이미 렌더돼 있으므로 ag-card-* 만 교체
+  const existing = [...agContainer.querySelectorAll('.agent-proposal-item')];
+  existing.forEach(el => el.remove());
+  const fragment = document.createElement('div');
+  fragment.innerHTML = _spawnAgents.map((ag,i)=>_agentCardHtml(ag,i,defaultModel)).join('');
+  [...fragment.children].forEach(el => agContainer.appendChild(el));
+  _updateSpawnConfirmBtn();
+}
+
+// 사전 준비사항 체크 → 승인 버튼 상태 갱신
+function _updateSpawnConfirmBtn(){
+  const btn = document.getElementById('spawn-confirm-btn');
+  if(!btn) return;
+  const checks = [...document.querySelectorAll('.spawn-prereq-check')];
+  const allChecked = checks.length === 0 || checks.every(c => c.checked);
+  btn.disabled = !allChecked;
+}
+
 function showSpawnModal(agents, fromHome){
   _spawnAgents=agents;
   AppState.spawnDesignFiles=[];
@@ -266,7 +345,7 @@ function showSpawnModal(agents, fromHome){
       <div class="spawn-prereq-list">
         ${AppState.spawnPrereqs.map((p,i)=>`
           <label class="spawn-prereq-item">
-            <input type="checkbox" id="prereq-${i}" class="spawn-prereq-check">
+            <input type="checkbox" id="prereq-${i}" class="spawn-prereq-check" onchange="_updateSpawnConfirmBtn()">
             <span class="spawn-prereq-label">${esc(p.label||'')}${p.detail?`<span class="spawn-prereq-detail"> — ${esc(p.detail)}</span>`:''}</span>
           </label>`).join('')}
       </div>
@@ -287,28 +366,8 @@ function showSpawnModal(agents, fromHome){
       </div>
     </div>` : '';
   const defaultModel = getSelectedModel() || 'sonnet';
-  list.innerHTML = projField + agents.map((ag,i)=>`
-    <div class="agent-proposal-item">
-      <div class="agent-proposal-row">
-        <span class="agent-role-badge">${esc(ag.role||'agent')}</span>
-        <div class="agent-proposal-label">${t('spawn.agent_name')}</div>
-        <input class="agent-proposal-input" id="ag-title-${i}" value="${esc(ag.title||ag.role||'Agent')}" placeholder="${t('spawn.agent_name')}">
-        <div class="agent-proposal-label">${t('spawn.agent_path')}</div>
-        <input class="agent-proposal-input" id="ag-cwd-${i}" value="${esc(ag.cwd_suffix||'')}" placeholder="${t('spawn.agent_path')}">
-      </div>
-      <div class="agent-proposal-row">
-        <div class="agent-proposal-label" style="width:60px">${t('spawn.agent_model')}</div>
-        <select class="agent-proposal-select" id="ag-model-${i}">
-          <option value="sonnet"${defaultModel==='sonnet'||!defaultModel?' selected':''}>Sonnet 4.6</option>
-          <option value="opus"${defaultModel==='opus'?' selected':''}>Opus 4.6</option>
-          <option value="haiku"${defaultModel==='haiku'?' selected':''}>Haiku 4.5</option>
-        </select>
-      </div>
-      <div class="agent-proposal-row">
-        <div class="agent-proposal-label" style="width:60px">${t('spawn.agent_task')}</div>
-        <textarea class="agent-proposal-prompt" id="ag-prompt-${i}" rows="2">${esc(ag.init_prompt||'')}</textarea>
-      </div>
-    </div>`).join('');
+  list.innerHTML = projField + agents.map((ag,i)=>_agentCardHtml(ag,i,defaultModel)).join('');
+  _updateSpawnConfirmBtn();
   document.getElementById('spawn-overlay').classList.add('open');
 }
 function closeSpawnModal(){document.getElementById('spawn-overlay').classList.remove('open');}
@@ -368,6 +427,16 @@ function removeSpawnDesign(i){
 }
 
 async function confirmSpawn(){
+  // 사전 준비사항 재확인 (버튼이 disabled여도 안전장치)
+  const checks = [...document.querySelectorAll('.spawn-prereq-check')];
+  if(checks.length && !checks.every(c=>c.checked)){
+    await showConfirm(t('spawn.prereq_uncheck'), {icon:'⚠', okText:'OK', cancelText:'', safe:true});
+    return;
+  }
+
+  // 현재 입력값 동기화
+  _syncAgentInputs();
+
   // 프로젝트 처리
   let projectId=AppState.activeProjectId;
   const projNameEl=document.getElementById('spawn-proj-name');
@@ -377,13 +446,13 @@ async function confirmSpawn(){
     if(p){projectId=p.id;AppState.activeProjectId=p.id;}
   }
 
-  const agents=_spawnAgents.map((ag,i)=>({
-    role:ag.role,
-    title:document.getElementById('ag-title-'+i)?.value.trim()||ag.title,
-    cwd_suffix:document.getElementById('ag-cwd-'+i)?.value.trim()||ag.cwd_suffix||'',
-    init_prompt:document.getElementById('ag-prompt-'+i)?.value.trim()||ag.init_prompt||'',
-    phase:'backlog',
-    model:document.getElementById('ag-model-'+i)?.value||getSelectedModel()||'sonnet',
+  const agents=_spawnAgents.map(ag=>({
+    role: ag.role||'agent',
+    title: (ag.title||'').trim()||'Agent',
+    cwd_suffix: (ag.cwd_suffix||'').trim(),
+    init_prompt: (ag.init_prompt||'').trim(),
+    phase: 'backlog',
+    model: ag.model||getSelectedModel()||'sonnet',
   }));
 
   // 디자인 파일 base64 직렬화

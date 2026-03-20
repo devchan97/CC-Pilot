@@ -141,6 +141,14 @@ const I18N = {
     'spawn.agent_model': 'Model',
     'spawn.agent_task': 'Task',
     'spawn.analyze_loading': 'Claude is analyzing your project…',
+    'spawn.analyzing_title': 'Analyzing…',
+    'spawn.analyzing_cancel': 'Cancel',
+    'spawn.add_agent': '+ Add Agent',
+    'spawn.remove_agent': 'Remove',
+    'spawn.prereq_uncheck': 'Please check all prerequisites before spawning.',
+    'spawn.new_agent_name': 'New Agent',
+    'spawn.new_agent_role': 'agent',
+    'spawn.new_agent_prompt': '',
 
     // 상세 모달
     'detail.open_explorer': 'Open in Explorer',
@@ -347,6 +355,14 @@ const I18N = {
     'spawn.agent_model': '모델',
     'spawn.agent_task': '태스크',
     'spawn.analyze_loading': 'Claude가 프로젝트를 분석 중…',
+    'spawn.analyzing_title': '분석 중…',
+    'spawn.analyzing_cancel': '취소',
+    'spawn.add_agent': '+ 에이전트 추가',
+    'spawn.remove_agent': '제거',
+    'spawn.prereq_uncheck': 'Spawn 전 모든 사전 준비 사항을 체크해주세요.',
+    'spawn.new_agent_name': '새 에이전트',
+    'spawn.new_agent_role': 'agent',
+    'spawn.new_agent_prompt': '',
 
     // 상세 모달
     'detail.open_explorer': 'Explorer에서 열기',
