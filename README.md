@@ -118,11 +118,15 @@ python main.py --fullscreen
 
 ---
 
-## Dangerous Permissions (Skip All Permission Prompts)
+## ⚠️ Dangerous Permissions — Read Before Use
 
-CCPilot launches every Claude Code session with `--dangerously-skip-permissions` by default. This means **Claude will execute tools (file edits, shell commands, etc.) without asking for confirmation**.
+CCPilot launches every Claude Code session with `--dangerously-skip-permissions` by default. This means **Claude will execute tools (file edits, shell commands, web requests, etc.) without asking for confirmation**.
 
-This is intentional for an automated agent workflow — you issue tasks, Claude executes them autonomously.
+> **You are solely responsible for any consequences of running CCPilot with this flag.**
+> This includes unintended file modifications, data loss, execution of destructive commands, or any other side effects caused by Claude acting autonomously on your machine.
+> Use CCPilot only in environments you control, on files you can afford to lose or restore from version control.
+
+This flag is intentional for an automated agent workflow — you issue tasks, Claude executes them autonomously. It is designed for developers who understand and accept the risks.
 
 If you want Claude to run with the **default interactive permission prompts** instead, remove or comment out the flag in `ccpilot/session.py`:
 
@@ -137,6 +141,8 @@ cmd = base + [
 ```
 
 > **Note**: If you remove the flag, Claude will pause at every tool-use prompt. Since CCPilot streams output over WebSocket, those prompts will not be visible in the UI and the session will appear to hang. Only remove the flag if you are running CCPilot in a supervised or sandboxed environment.
+
+> **Planned**: Per-working-directory sandbox isolation is on the roadmap — each agent will be confined to its designated working directory, preventing cross-directory access.
 
 ---
 
