@@ -33,6 +33,9 @@ function handleMsg(sid,s,msg){
     if(_pendingInitPrompts[sid] && s.phase !== 'backlog'){
       const ip=_pendingInitPrompts[sid];delete _pendingInitPrompts[sid];
       setTimeout(()=>{if(s.ws&&s.ws.readyState===WebSocket.OPEN&&s.verified){pushLog(sid,{role:'user',text:ip});s.ws.send(JSON.stringify({type:'input',data:ip}));setInputBusy(sid,true);}},300);
+    } else {
+      // 재연결 후 큐에 대기 중인 메시지가 있으면 즉시 flush
+      setTimeout(()=>_flushQueue(sid), 300);
     }
     return;
   }
@@ -188,7 +191,10 @@ const _msgQueues = {};  // sid → string[]
 
 function _isBusy(sid){
   const s = sessions[sid];
-  return s && (s.status?.thinking || s.aiEl);
+  if(!s) return false;
+  // WS가 끊겨 있으면 busy 아님 (재연결 후 connected에서 flush)
+  if(!s.ws || s.ws.readyState !== WebSocket.OPEN) return false;
+  return !!(s.status?.thinking || s.aiEl);
 }
 
 function _enqueue(sid, text){
