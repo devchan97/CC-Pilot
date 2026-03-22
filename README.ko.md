@@ -220,6 +220,8 @@ npm install -g @anthropic-ai/claude-code
 - **에이전트 팀 자동 생성** — PRD 붙여넣기 또는 파일 업로드 시 Claude가 팀 구조를 설계하고 에이전트를 자동 스폰
 - **다중 세션 칸반** — 여러 Claude Code 인스턴스를 Backlog / In Progress / Done 카드로 관리
 - **실시간 스트리밍** — WebSocket 기반 출력 (`thinking`, `tool_use`, 토큰/비용 추적 포함)
+- **메시지 큐** — 에이전트가 작업 중일 때 전송한 메시지는 큐에 쌓이고 응답 완료 후 자동 전송; 카드 뱃지와 상세 모달에서 큐 상태 확인 및 삭제 가능
+- **`/model` 인라인 모델 전환** — 입력창에 `/model` 입력 시 인라인 선택 UI 표시 (Opus 4.6 / Sonnet 4.6 / Haiku 4.5); `/model <이름>`으로 직접 전환, 즉시 저장
 - **세션 영속화** — `--resume`으로 재시작 후에도 세션 복원, SQLite(`ccpilot.db`)에 저장, 다음 실행 시 자동 복원
 - **사용량 한도 감지** — Claude 플랜/Rate Limit 에러 감지, 대기 모드 진입, UI에 리셋 시간 표시
 - **휴지통 / 복원** — 실수로 닫은 카드를 사이드바 휴지통에서 복구 (채팅 로그 포함)
@@ -308,6 +310,7 @@ cc-pilot/
 | `DELETE` | `/api/session/{sid}` | 세션 삭제 |
 | `POST` | `/api/session/{sid}/phase` | 칸반 단계 이동 |
 | `POST` | `/api/session/{sid}/rename` | 태스크 이름 변경 |
+| `POST` | `/api/session/{sid}/model` | 세션 모델 변경 |
 | `GET` | `/api/projects` | 프로젝트 목록 |
 | `POST` | `/api/projects` | 프로젝트 생성 |
 | `POST` | `/api/projects/{pid}/rename` | 프로젝트 이름 변경 |

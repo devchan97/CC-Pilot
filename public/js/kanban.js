@@ -178,6 +178,7 @@ function mountCard(sid, title, phase, model, slashCmds, projectId, cwd){
       <button class="phase-btn" data-to="done"       onclick="movePhase('${sid}','done')">Done</button>
     </div>
     <div class="task-sl" id="sl-${sid}">${t('ws.connecting')}</div>
+    <div class="task-queue-badge" id="queue-badge-${sid}"></div>
     <div class="task-preview" id="preview-${sid}" onclick="openDetailModal('${sid}')">-</div>`;
   col.appendChild(card);
 
@@ -236,9 +237,9 @@ function movePhase(sid, phase){
   // done → inprogress: WebSocket 재연결 및 자동 완료 플래그 리셋
   if(phase === 'inprogress' && oldPhase === 'done'){
     delete _autoDoneNotified[sid];
-    if(s.isDoneRestored){
-      // Done 상태로 복원된 카드를 inprogress로 이동: WS 연결
-      s.isDoneRestored = false;
+    s.isDoneRestored = false;
+    // WS가 없거나 끊긴 상태면 무조건 재연결
+    if(!s.ws || s.ws.readyState === WebSocket.CLOSED || s.ws.readyState === WebSocket.CLOSING){
       connectWS(sid);
     }
   }

@@ -92,6 +92,44 @@
   font-size:10px;font-family:var(--font-mono);color:var(--text-dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:19px;letter-spacing:.2px;
 }
+.task-queue-badge{
+  padding:2px 12px;font-size:10px;color:var(--yellow);font-family:var(--font-mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.task-queue-badge:empty{display:none}
+/* ── 상세 모달 큐 ── */
+.detail-queue{
+  padding:6px 12px;background:var(--surface3);border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto;flex-shrink:0;
+}
+.detail-queue::-webkit-scrollbar{width:4px}
+.detail-queue::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.queue-item{
+  display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-mid);
+}
+.queue-idx{
+  color:var(--yellow);font-family:var(--font-mono);font-size:10px;flex-shrink:0;min-width:14px;
+}
+.queue-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.queue-item button{
+  background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:10px;padding:0 2px;
+  flex-shrink:0;
+}
+.queue-item button:hover{color:var(--red)}
+/* ── model picker ── */
+.model-picker-wrap{flex-direction:column;align-items:stretch!important;gap:4px;width:100%}
+.model-picker-title{font-size:10px;color:var(--text-dim);padding:4px 2px 2px;letter-spacing:.4px;text-transform:uppercase}
+.model-picker-row{
+  display:flex;align-items:center;gap:8px;
+  background:var(--surface3);border:1px solid var(--border2);border-radius:8px;
+  padding:7px 12px;cursor:pointer;text-align:left;width:100%;
+  font-size:12px;color:var(--text);transition:background .12s,border-color .12s;
+}
+.model-picker-row:hover{background:var(--surface2);border-color:var(--accent)}
+.model-picker-row.active{border-color:var(--green);color:var(--green)}
+.mp-label{font-weight:600;min-width:80px;flex-shrink:0}
+.mp-desc{color:var(--text-dim);font-size:11px;flex:1}
+.mp-check{color:var(--green);font-size:11px;flex-shrink:0}
 .c-cyan{color:#5ba8b4}.c-magenta{color:#b47ab0}.c-yellow{color:var(--yellow)}
 .c-red{color:var(--red)}.c-green{color:var(--green)}.c-gray{color:#4a4840}
 

@@ -179,6 +179,8 @@ const I18N = {
     'ws.error': 'Error: ',
     'ws.done_auto': '✓ Goal achieved — moved to Done.',
     'ws.restore': 'Restore',
+    'ws.queued': 'Queued',
+    'ws.queue_label': 'Queued messages',
 
     // 확인 모달
     'confirm.ok': 'OK',
@@ -393,6 +395,8 @@ const I18N = {
     'ws.error': '오류: ',
     'ws.done_auto': '✓ 목표 달성이 감지되어 Done으로 이동했습니다.',
     'ws.restore': '복원',
+    'ws.queued': '대기',
+    'ws.queue_label': '대기 중인 메시지',
 
     // 확인 모달
     'confirm.ok': '확인',

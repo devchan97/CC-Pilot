@@ -508,6 +508,25 @@ async def handle(reader, writer):
         MGR.rename(sid, req.get("title", ""))
         json_response(writer, {"ok": True})
 
+    elif method == "POST" and path.startswith("/api/session/") and path.split("?")[0].endswith("/model"):
+        sid = path.split("?")[0].split("/")[3]
+        try:
+            cl = parse_content_length(hs)
+            body_raw = await reader.read(cl) if cl else b""
+            req = json.loads(body_raw) if body_raw else {}
+        except Exception:
+            req = {}
+        new_model = req.get("model", "").strip()
+        sess = MGR.get(sid)
+        if sess and new_model:
+            sess.model_arg = new_model
+            sess.status["model"] = new_model
+            MGR.save()
+            MGR.publish(sid, {"type": "status", "status": sess.status})
+            json_response(writer, {"ok": True, "model": new_model})
+        else:
+            error_response(writer, "session not found or model empty")
+
     else:
         writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
 

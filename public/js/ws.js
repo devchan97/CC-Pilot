@@ -47,26 +47,25 @@ function handleMsg(sid,s,msg){
   }
   if(msg.type==='cleared'){
     s.chatLog=[];s.aiEl=null;s.aiBuf='';s.lastResponse='';
-    pushLog(sid,{role:'sys',text:t('ws.cleared')});updatePreview(sid);
-    if(_detailSid===sid){const chat=document.getElementById('detail-chat');if(chat)chat.innerHTML='';appendDetailSys(t('ws.cleared'));}
+    if(_detailSid===sid){const chat=document.getElementById('detail-chat');if(chat)chat.innerHTML='';}
+    pushLog(sid,{role:'sys',text:t('ws.cleared')});
+    updatePreview(sid);
     return;
   }
   if(msg.type==='sys_notice'){
     if(s.aiEl)finalizeAiEl(sid,s);
     pushLog(sid,{role:'sys',text:msg.message});
-    if(_detailSid===sid){appendDetailSys(msg.message);scrollDetailBottom();}
     return;
   }
   if(msg.type==='phase'){return;}
   if(msg.type==='tool_use'){
     if(s.aiEl)finalizeAiEl(sid,s);
     pushLog(sid,{type:'tool',name:msg.name,summary:msg.summary});
-    if(_detailSid===sid){const chat=document.getElementById('detail-chat');renderLogEntry(chat,{type:'tool',name:msg.name,summary:msg.summary},sid);scrollDetailBottom();}
     return;
   }
   if(msg.type==='thinking'){
     if(s.aiEl)finalizeAiEl(sid,s);
-    if(msg.data){pushLog(sid,{type:'thinking',text:msg.data});if(_detailSid===sid){const chat=document.getElementById('detail-chat');renderLogEntry(chat,{type:'thinking',text:msg.data},sid);scrollDetailBottom();}}
+    if(msg.data) pushLog(sid,{type:'thinking',text:msg.data});
     return;
   }
   if(msg.type==='output'){
@@ -87,6 +86,8 @@ function handleMsg(sid,s,msg){
     if(s.aiEl){const text=s.aiBuf;if(!s.aiEl._virtual)s.aiEl.classList.remove('streaming');s.lastResponse=text;pushLog(sid,{role:'ai',text});s.aiEl=null;s.aiBuf='';updatePreview(sid);}
     setInputBusy(sid,false);
     if(_detailSid===sid){document.getElementById('ta-detail').disabled=false;document.getElementById('send-detail').disabled=false;scrollDetailBottom();}
+    // 큐에 대기 중인 메시지 전송
+    _flushQueue(sid);
     // InProgress 상태에서 목표 달성 감지 → 자동 Done 이동
     if(s.phase==='inprogress' && s.lastResponse){
       checkAutoComplete(sid,s.lastResponse);
@@ -96,9 +97,10 @@ function handleMsg(sid,s,msg){
   if(msg.type==='error'){
     if(s.aiEl)finalizeAiEl(sid,s);
     pushLog(sid,{role:'sys',text:t('ws.error')+msg.message});
-    if(_detailSid===sid){appendDetailSys(t('ws.error')+msg.message);scrollDetailBottom();}
     setInputBusy(sid,false);
     if(_detailSid===sid){document.getElementById('ta-detail').disabled=false;document.getElementById('send-detail').disabled=false;}
+    // 에러 시에도 큐 플러시 (작업 재개)
+    _flushQueue(sid);
     return;
   }
   if(msg.type==='usage_limit'){
@@ -106,7 +108,6 @@ function handleMsg(sid,s,msg){
     const resetText = msg.reset_time ? ` (${t('err.usage_limit_reset')}: ${msg.reset_time})` : '';
     const text = `${t('err.usage_limit')}${resetText}\n\n${msg.message}`;
     pushLog(sid,{role:'sys',text});
-    if(_detailSid===sid){appendDetailSys(text);scrollDetailBottom();}
     setInputBusy(sid,false);
     if(_detailSid===sid){document.getElementById('ta-detail').disabled=false;document.getElementById('send-detail').disabled=false;}
     return;
@@ -130,6 +131,112 @@ function appendDetailSys(text){
 }
 function scrollDetailBottom(){const c=document.getElementById('detail-chat');if(c)c.scrollTop=c.scrollHeight;}
 
+// ── /model 처리 ───────────────────────────────────────────────────────────────
+const _MODEL_LIST = [
+  {key:'opus',    label:'Opus 4.6',   desc:'Most capable for complex work',  fullId:'claude-opus-4-6'},
+  {key:'sonnet',  label:'Sonnet 4.6', desc:'Best for everyday tasks',        fullId:'claude-sonnet-4-6'},
+  {key:'haiku',   label:'Haiku 4.5',  desc:'Fastest for quick answers',      fullId:'claude-haiku-4-5-20251001'},
+];
+
+function _applyModel(sid, modelArg){
+  fetch('/api/session/'+sid+'/model',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({model: modelArg})
+  }).then(r=>r.json()).then(j=>{
+    if(j.ok) pushLog(sid,{role:'sys',text:`✓ Model → ${j.model}`});
+    else pushLog(sid,{role:'sys',text:`✗ ${j.error||'model change failed'}`});
+  }).catch(()=>pushLog(sid,{role:'sys',text:'✗ model change error'}));
+}
+
+function _showModelPicker(sid){
+  const s = sessions[sid]; if(!s) return;
+  const cur = (s.status?.model||'').toLowerCase();
+
+  // detail-chat이 열려있으면 거기에, 아니면 chatLog에만 기록
+  const chat = _detailSid===sid ? document.getElementById('detail-chat') : null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'msg sys model-picker-wrap';
+
+  const title = document.createElement('div');
+  title.className = 'model-picker-title';
+  title.textContent = 'Select model';
+  wrap.appendChild(title);
+
+  _MODEL_LIST.forEach(m=>{
+    const isCur = cur.includes(m.key) || cur.includes(m.fullId);
+    const row = document.createElement('button');
+    row.className = 'model-picker-row' + (isCur?' active':'');
+    row.innerHTML = `<span class="mp-label">${esc(m.label)}</span><span class="mp-desc">${esc(m.desc)}</span>${isCur?'<span class="mp-check">✔</span>':''}`;
+    row.onclick = ()=>{
+      // 선택 후 picker 제거
+      wrap.remove();
+      _applyModel(sid, m.key);
+    };
+    wrap.appendChild(row);
+  });
+
+  if(chat){
+    chat.appendChild(wrap);
+    scrollDetailBottom();
+  }
+  // chatLog에는 기록하지 않음 (DOM 전용 UI)
+}
+
+// ── 메시지 큐 ─────────────────────────────────────────────────────────────────
+const _msgQueues = {};  // sid → string[]
+
+function _isBusy(sid){
+  const s = sessions[sid];
+  return s && (s.status?.thinking || s.aiEl);
+}
+
+function _enqueue(sid, text){
+  if(!_msgQueues[sid]) _msgQueues[sid] = [];
+  _msgQueues[sid].push(text);
+  _renderQueue(sid);
+}
+
+function _flushQueue(sid){
+  const q = _msgQueues[sid];
+  if(!q || !q.length) return;
+  const text = q.shift();
+  _renderQueue(sid);
+  const s = sessions[sid];
+  if(!s || !s.ws || s.ws.readyState !== WebSocket.OPEN) return;
+  pushLog(sid,{role:'user',text});
+  s.ws.send(JSON.stringify({type:'input',data:text}));
+  setInputBusy(sid,true);
+  // 큐에 더 남아있어도 done 이벤트 후 자동 flush되므로 여기선 1개만
+}
+
+function _renderQueue(sid){
+  const q = _msgQueues[sid] || [];
+  // 카드 내 큐 뱃지
+  const badge = document.getElementById('queue-badge-'+sid);
+  if(badge) badge.textContent = q.length ? `⏳ ${q.length}` : '';
+  // 상세 모달 큐 프리뷰
+  if(_detailSid === sid){
+    const qEl = document.getElementById('detail-queue');
+    if(qEl){
+      if(q.length){
+        const label = `<div style="font-size:10px;color:var(--text-dim);margin-bottom:2px">${t('ws.queue_label')} (${q.length})</div>`;
+        qEl.innerHTML = label + q.map((m,i)=>`<div class="queue-item"><span class="queue-idx">${i+1}</span><span class="queue-text">${esc(m)}</span><button onclick="_dequeue('${sid}',${i})">✕</button></div>`).join('');
+        qEl.style.display = '';
+      } else {
+        qEl.style.display = 'none';
+      }
+    }
+  }
+}
+
+function _dequeue(sid, idx){
+  const q = _msgQueues[sid];
+  if(!q) return;
+  q.splice(idx,1);
+  _renderQueue(sid);
+}
+
 // ── send ───────────────────────────────────────────────────────────────────────
 function sendMsg(sid, inputId){
   const s=sessions[sid];
@@ -140,13 +247,35 @@ function sendMsg(sid, inputId){
   const text=ta.value.trim();if(!text)return;
   const isCmd=text.startsWith('/');
   if(s.aiEl)finalizeAiEl(sid,s);
-  const UNSUP={'/help':'ℹ /help는 interactive 모드 전용입니다.','/model':'ℹ /model은 세션 생성 시 모델 선택으로 변경하세요.'};
+  const UNSUP={'/help':'ℹ /help는 interactive 모드 전용입니다.'};
   const cmd0=text.split(' ')[0];
   if(isCmd&&UNSUP[cmd0]){pushLog(sid,{role:'cmd',text});resetInputEl(ta,document.getElementById(btnId));pushLog(sid,{role:'sys',text:UNSUP[cmd0]});return;}
   if(isCmd&&cmd0==='/clear'){pushLog(sid,{role:'cmd',text});resetInputEl(ta,document.getElementById(btnId));closeDropdown(inputId==='detail'?'detail':sid);s.ws.send(JSON.stringify({type:'clear'}));return;}
-  pushLog(sid,{role:isCmd?'cmd':'user',text});
-  s.ws.send(JSON.stringify({type:'input',data:text}));
-  setInputBusy(sid,true);resetInputEl(ta,document.getElementById(btnId));closeDropdown(inputId==='detail'?'detail':sid);
+  if(isCmd&&cmd0==='/model'){
+    const modelArg=text.slice('/model'.length).trim();
+    pushLog(sid,{role:'cmd',text});
+    resetInputEl(ta,document.getElementById(btnId));
+    closeDropdown(inputId==='detail'?'detail':sid);
+    if(modelArg){
+      // /model <name> 직접 지정
+      _applyModel(sid, modelArg);
+    } else {
+      // 인자 없으면 인라인 선택 UI 표시
+      _showModelPicker(sid);
+    }
+    return;
+  }
+  resetInputEl(ta,document.getElementById(btnId));
+  closeDropdown(inputId==='detail'?'detail':sid);
+  // 작업 중이면 큐에 추가, 아니면 즉시 전송
+  if(_isBusy(sid)){
+    pushLog(sid,{role:'sys',text:`${t('ws.queued')}: ${text}`});
+    _enqueue(sid, text);
+  } else {
+    pushLog(sid,{role:isCmd?'cmd':'user',text});
+    s.ws.send(JSON.stringify({type:'input',data:text}));
+    setInputBusy(sid,true);
+  }
 }
 function resetInputEl(ta,btn){
   if(ta){ta.value='';ta.style.height='auto';ta.classList.remove('is-cmd');}
@@ -154,7 +283,11 @@ function resetInputEl(ta,btn){
 }
 function setInputBusy(sid,busy){
   setDot(sid,busy?'busy':'ok');
-  if(_detailSid===sid){document.getElementById('ta-detail').disabled=busy;document.getElementById('send-detail').disabled=busy;}
+  // 상세 모달 열려있을 때도 입력 허용 (큐 기능 덕분에 항상 활성)
+  if(_detailSid===sid){
+    document.getElementById('ta-detail').disabled=false;
+    document.getElementById('send-detail').disabled=false;
+  }
 }
 
 // ── statusline ─────────────────────────────────────────────────────────────────

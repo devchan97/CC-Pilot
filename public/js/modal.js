@@ -79,8 +79,11 @@ function openDetailModal(sid){
   chat.innerHTML = '';
   for(const entry of (s.chatLog||[])) renderLogEntry(chat, entry, sid);
   chat.scrollTop = chat.scrollHeight;
+  // 큐 UI 갱신
+  if(typeof _renderQueue === 'function') _renderQueue(sid);
   const ta = document.getElementById('ta-detail');
   const btn = document.getElementById('send-detail');
+  // 연결 중이면 입력 비활성, 연결 후엔 항상 활성 (큐 기능으로 busy여도 입력 가능)
   ta.disabled = !s.verified; btn.disabled = !s.verified;
   ta.value = ''; ta.style.height = 'auto';
   attachDetailInputHandlers();

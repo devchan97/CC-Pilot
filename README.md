@@ -220,6 +220,8 @@ npm install -g @anthropic-ai/claude-code
 - **Agent team planning** — Paste a PRD or upload a doc, Claude designs the team structure and spawns agents automatically
 - **Multi-session kanban** — Manage multiple Claude Code instances as Backlog / In Progress / Done cards
 - **Real-time streaming** — WebSocket-based output with `thinking`, `tool_use`, and token/cost tracking
+- **Message queue** — Messages sent while an agent is busy are queued and auto-flushed; queue depth shown on the card badge and in the detail modal
+- **`/model` inline switcher** — Type `/model` to open an inline model picker (Opus 4.6 / Sonnet 4.6 / Haiku 4.5); or `/model <name>` to switch directly, persisted immediately
 - **Session persistence** — Sessions survive restarts via `--resume`, stored in SQLite (`ccpilot.db`), restored automatically on next launch
 - **Usage limit detection** — Detects Claude plan/rate limit errors, enters wait mode, and shows reset time in the UI
 - **Trash / restore** — Accidentally closed a card? Recover it from the sidebar trash bin (retains chat log)
@@ -308,6 +310,7 @@ cc-pilot/
 | `DELETE` | `/api/session/{sid}` | Delete session |
 | `POST` | `/api/session/{sid}/phase` | Move kanban phase |
 | `POST` | `/api/session/{sid}/rename` | Rename task |
+| `POST` | `/api/session/{sid}/model` | Change session model |
 | `GET` | `/api/projects` | List projects |
 | `POST` | `/api/projects` | Create project |
 | `POST` | `/api/projects/{pid}/rename` | Rename project |
